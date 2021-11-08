@@ -1,1 +1,1 @@
-# sashimi-c
+# Semi-Analytical SubHalo Inference ModelIng (SASHIMI)
