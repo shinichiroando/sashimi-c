@@ -47,7 +47,7 @@ The SASHIMI codes depend on results from various earlier papers. Listed below ar
 
 ## Examples
 
-The file 'sashimi_c.py' contains all the variables and functions that are used to compute various subhalo properties. Please read sample.ipyb for more extensive examples.
+The file 'sashimi_c.py' contains all the variables and functions that are used to compute various subhalo properties. Please read 'sample.ipyb' for more extensive examples.
 
 Here, as a minimal example, here is how you generate a semi-analytical catalog of subhalos:
 
@@ -109,3 +109,5 @@ ct_z0:    Tidal truncation radius in units of r_s at a given redshift.
 weight:   Effective number of subhalos that are characterized by the same set of the parameters above.
 survive:  If that subhalo survive against tidal disruption or not.
 ```
+
+These outputs are adopted further in various functions of 'subhalo_observables' class. See 'sample.ipynb' for details. They can be used in https://github.com/shinichiroando/dwarf_params to discuss density profiles of dwarf galaxies, as discussed in a related paper: https://arxiv.org/abs/2002.11956
