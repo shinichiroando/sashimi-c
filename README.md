@@ -2,7 +2,7 @@
 [![arXiv](https://img.shields.io/badge/arXiv-1803.07691%20-green.svg)](https://arxiv.org/abs/1803.07961)
 [![arXiv](https://img.shields.io/badge/arXiv-1903.11427%20-green.svg)](https://arxiv.org/abs/1903.11427)
 
-The codes calculates subhalo properties efficiently using semi-analytical models for cold dark matter. 
+The codes allow to calculate various subhalo properties efficiently using semi-analytical models for cold dark matter. The results are well in agreement with those from numerical $N$-body simulations.
 
 ## Authors
 
