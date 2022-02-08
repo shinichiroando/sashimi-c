@@ -79,13 +79,13 @@ M0: Mass of the host halo defined as M_{200} (200 times critial density) at *z =
                            (default: 500)
 (Optional) sigmalogc:      rms scatter of concentration parameter defined for log_{10}(c).
                            (default: 0.128)
-(Optional) N_herm:         Number of grid in Gauss-Hermit quadrature for integral over concentration.
+(Optional) N_herm:         Number of grid in Gauss-Hermite quadrature for integral over concentration.
                            (default: 5)
 (Optional) logmamin:       Minimum value of subhalo mass at accretion defined as log_{10}(m_{min}/Msun)). 
                            (default: -6)
 (Optional) logmamax:       Maximum value of subhalo mass at accretion defined as log_{10}(m_{max}/Msun).
                            If None, m_{max}=0.1*M0. (default: None)
-(Optional) N_hermNa:       Number of grid in Gauss-Hermit quadrature for integral over host evoluation, 
+(Optional) N_hermNa:       Number of grid in Gauss-Hermite quadrature for integral over host evoluation, 
                            used in Na_calc. (default: 200)
 (Optional) Na_model:       Model number of EPS defined in Yang et al. (2011). (default: 3)
 (Optional) ct_th:          Threshold value for c_t(=r_t/r_s) parameter, below which a subhalo is assumed to
