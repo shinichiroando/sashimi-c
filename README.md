@@ -12,7 +12,7 @@ The codes allow to calculate various subhalo properties efficiently using semi-a
 
 Special thanks to Tomoaki Ishiyama, who provided data of cosmological N-body simulations that were used for calibration of model output.
 
-Please send enquiries to Shin'ichiro Ando (s.ando@uva.nl).
+Please send enquiries to Shin'ichiro Ando (s.ando@uva.nl). We have checked the codes work with python 3.9 but cannot guarantee for other versions of python. In any case, we cannot help with any technical issues not directly related to the content of SASHIMI (such as installation, sub-packages required, etc.)
 
 ## What can we do with SASHIMI?
 
