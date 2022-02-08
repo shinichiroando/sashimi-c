@@ -2,7 +2,7 @@
 [![arXiv](https://img.shields.io/badge/arXiv-1803.07691%20-green.svg)](https://arxiv.org/abs/1803.07961)
 [![arXiv](https://img.shields.io/badge/arXiv-1903.11427%20-green.svg)](https://arxiv.org/abs/1903.11427)
 
-The codes allow to calculate various subhalo properties efficiently using semi-analytical models for cold dark matter. The results are well in agreement with those from numerical N-body simulations -- thus providing their cost effective alternative.
+The codes allow to calculate various subhalo properties efficiently using semi-analytical models for cold dark matter. The results are well in agreement with those from numerical N-body simulations.
 
 ## Authors
 
@@ -10,10 +10,11 @@ The codes allow to calculate various subhalo properties efficiently using semi-a
 - Nagisa Hiroshima
 - Ariane Dekker
 
+Please send enquiries to Shin'ichiro Ando (s.ando@uva.nl).
+
 ## References
 
 When you use the outcome of this package for your scientific output, please cite the following publications.
 
-[1] N. Hiroshima, S. Ando, T. Ishiyama, Phys. Rev. D 97, 123002 (2018) [arXiv:1803.07691 [astro-ph.CO]]
-
-[2] S. Ando, T. Ishiyama, N. Hiroshima, Galaxies 7, 68 (2019) [arXiv:1903.11427 [astro-ph.CO]]
+- N. Hiroshima, S. Ando, T. Ishiyama, Phys. Rev. D 97, 123002 (2018) [arXiv:1803.07691 [astro-ph.CO]]
+- S. Ando, T. Ishiyama, N. Hiroshima, Galaxies 7, 68 (2019) [arXiv:1903.11427 [astro-ph.CO]]
