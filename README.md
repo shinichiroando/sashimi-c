@@ -12,20 +12,20 @@ The codes allow to calculate various subhalo properties efficiently using semi-a
 
 Special thanks to Tomoaki Ishiyama, who provided data of cosmological N-body simulations that were used for calibration of model output.
 
-Please send enquiries to Shin'ichiro Ando (s.ando@uva.nl). We have checked the codes work with python 3.9 but cannot guarantee for other versions of python. In any case, we cannot help with any technical issues not directly related to the content of SASHIMI (such as installation, sub-packages required, etc.)
+Please send enquiries to Shin'ichiro Ando (s.ando@uva.nl). We have checked that the codes work with python 3.9 but cannot guarantee for other versions of python. In any case, we cannot help with any technical issues not directly related to the content of SASHIMI (such as installation, sub-packages required, etc.)
 
 ## What can we do with SASHIMI?
 
 - SASHIMI provides a full catalog of dark matter subhalos in a host halo with arbitrary mass and redshift, which is calculated with semi-analytical models.
 - Each subhalo in this catalog is characterized by its mass and density profile both at accretion and at the redshift of interest, accretion redshift, and effective number (or weight) corresponding to that particular subhalo.
 - It can be used to quickly compute the subhalo mass function without making any assumptions such as power-law functional forms, etc. Only power law that we assume here is the one for primordial power spectrum predicted by inflation! Everything else is calculated theoretically.
-- SASHIMI is not limited to numerical resoultion which is often the most crucial limiting factor for the numerical simulation. One can easily set the minumum halo mass to be a micro solar mass or even lighter!
+- SASHIMI is not limited to numerical resolution which is often the most crucial limiting factor for the numerical simulation. One can easily set the minimum halo mass to be a micro solar mass or even lighter!
 - SASHIMI is not limited to Poisson shot noise that inevitably accompanies when one has to count subhalos like in the case of numerical simulations.
-- One can calculates the annihilation boost factor.
+- One can calculate the annihilation boost factor.
 
 ## What are the future developments for SASHIMI?
 
-- Extention to different dark matter models. The case of warm dark matter (WDM) has finished: https://github.com/shinichiroando/sashimi-w
+- Extension to different dark matter models. The case of warm dark matter (WDM) has finished: https://github.com/shinichiroando/sashimi-w
 - Including spatial information.
 - Including intrinsic variance that accompanies the host halo evolution.
 - Application to various primordial power spectra.
@@ -49,7 +49,7 @@ The SASHIMI codes depend on results from various earlier papers. Listed below ar
 
 The file 'sashimi_c.py' contains all the variables and functions that are used to compute various subhalo properties. Please read 'sample.ipyb' for more extensive examples.
 
-Here, as a minimal example, here is how you generate a semi-analytical catalog of subhalos:
+Here, as a minimal example, is how you generate a semi-analytical catalog of subhalos:
 
 ```
 from sashimi_c import *
@@ -61,13 +61,13 @@ ma200,z_acc,rs_acc,rhos_acc,m_z0,rs_z0,rhos_z0,ct_z0,weight,survive \
     = sh.subhalo_properties_calc(M0)
 ```
 
-For inputs and outputs of this function, see its documentaion. For reference, it is:
+For inputs and outputs of this function, see its documentation. For reference, it is:
 
 ```
 -----
 Input
 -----
-M0: Mass of the host halo defined as M_{200} (200 times critial density) at *z = 0*.
+M0: Mass of the host halo defined as M_{200} (200 times critical density) at *z = 0*.
     Note that this is *not* the host mass at the given redshift! It can be obtained
     via Mzi(M0,redshift). If you want to give this parameter as the mass at the given
     redshift, then turn 'M0_at_redshift' parameter on (see below).
@@ -85,11 +85,11 @@ M0: Mass of the host halo defined as M_{200} (200 times critial density) at *z =
                            (default: -6)
 (Optional) logmamax:       Maximum value of subhalo mass at accretion defined as log_{10}(m_{max}/Msun).
                            If None, m_{max}=0.1*M0. (default: None)
-(Optional) N_hermNa:       Number of grid in Gauss-Hermite quadrature for integral over host evoluation, 
+(Optional) N_hermNa:       Number of grid in Gauss-Hermite quadrature for integral over host evolution, 
                            used in Na_calc. (default: 200)
 (Optional) Na_model:       Model number of EPS defined in Yang et al. (2011). (default: 3)
 (Optional) ct_th:          Threshold value for c_t(=r_t/r_s) parameter, below which a subhalo is assumed to
-                           be completely desrupted. Suggested values: 0.77 (default) or 0 (no desruption).
+                           be completely disrupted. Suggested values: 0.77 (default) or 0 (no disruption).
 (Optional) profile_change: Whether we implement the evolution of subhalo density profile through tidal
                            mass loss. (default: True)
 (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
