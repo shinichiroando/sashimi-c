@@ -251,8 +251,8 @@ class subhalo_properties(halo_model):
         if Na_model==3:
             zlist    = zacc_2d*np.linspace(1,0,Nrand)
             iMmax    = np.argmin(np.abs(self.Mzzi(Mhost,zlist,z0)-Mmax),axis=-1)
-            z_Max    = zlist[np.arange(np.alen(zlist)),iMmax]
-            z_Max_3d = z_Max.reshape(N_herm,np.alen(zlist),1)
+            z_Max    = zlist[np.arange(len(zlist)),iMmax]
+            z_Max_3d = z_Max.reshape(N_herm,len(zlist),1)
             delcM    = self.deltac_func(z_Max_3d)
             delca    = self.deltac_func(zacc_2d)
             sM       = self.s_func(Mmax)
@@ -282,7 +282,7 @@ class subhalo_properties(halo_model):
 
         if N_herm==1:
             F2t = np.nan_to_num(Phi)
-            F2  =F2t.reshape((np.alen(zacc_2d),np.alen(ma)))
+            F2  =F2t.reshape((len(zacc_2d),len(ma)))
         else:
             F2 = np.sum(np.nan_to_num(Phi)*wwi/np.sqrt(np.pi),axis=0)
         Na = F2*self.dsdm(ma,0.)*self.dMdz(Mhost,zacc_2d,z0)*(1.+zacc_2d)
@@ -395,8 +395,8 @@ class subhalo_properties(halo_model):
             r200sub      = (3.*ma200/(4.*np.pi*self.rhocrit0*self.g(zdist[iz])*200.))**(1./3.)
             c_mz         = c200sub*rvirsub/r200sub
             x1,w1        = hermgauss(N_herm)
-            x1           = x1.reshape(np.alen(x1),1)
-            w1           = w1.reshape(np.alen(w1),1)
+            x1           = x1.reshape(len(x1),1)
+            w1           = w1.reshape(len(w1),1)
             log10c_sub   = np.sqrt(2.)*sigmalogc*x1+np.log10(c_mz)
             c_sub        = 10.0**log10c_sub
             rs_acc[iz]   = rvirsub/c_sub
@@ -422,10 +422,10 @@ class subhalo_properties(halo_model):
         Na_total     = integrate.simps(integrate.simps(Na,x=np.log(ma)),x=np.log(1+zdist))
         weight       = Na/(1.+zdist.reshape(-1,1))
         weight       = weight/np.sum(weight)*Na_total
-        weight       = (weight.reshape((np.alen(zdist),1,np.alen(ma))))*w1/np.sqrt(np.pi)
+        weight       = (weight.reshape((len(zdist),1,len(ma))))*w1/np.sqrt(np.pi)
         z_acc        = (zdist.reshape(-1,1,1))*np.ones((1,N_herm,N_ma))
         z_acc        = z_acc.reshape(-1)
-        ma200        = ma200*np.ones((np.alen(zdist),N_herm,1))
+        ma200        = ma200*np.ones((len(zdist),N_herm,1))
         ma200        = ma200.reshape(-1)
         m_z0         = m0_matrix.reshape(-1)
         rs_acc       = rs_acc.reshape(-1)
@@ -748,7 +748,7 @@ class subhalo_observables(subhalo_properties):
         
         mu_sh      = np.sum(weight)
         prob       = weight/mu_sh
-        subhalo_id = np.arange(np.alen(prob))
+        subhalo_id = np.arange(len(prob))
         N_sh       = np.random.poisson(mu_sh)
         id_MC      = np.random.choice(subhalo_id,size=N_sh,p=prob)
         ma200_MC   = ma200[id_MC]
