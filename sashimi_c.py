@@ -308,6 +308,32 @@ class subhalo_properties(halo_model):
         Na = F2*self.dsdm(ma,0.)*self.dMdz(Mhost,zacc_2d,z0)*(1.+zacc_2d)
         return Na
 
+
+    def Mzvir(self,z):
+        Mz200 = self.Mzzi(self.M0,z,0.)
+        Mvir = self.Mvir_from_M200(Mz200,z)
+        return Mvir
+
+    def AMz(self,z):
+        log10a = (-0.0003*np.log10(self.Mzvir(z)/self.Msun)+0.02)*z \
+                        +(0.011*np.log10(self.Mzvir(z)/self.Msun)-0.354)
+        return 10.**log10a
+
+    def zetaMz(self,z):
+        return (0.00012*np.log10(self.Mzvir(z)/self.Msun)-0.0033)*z \
+                    +(-0.0011*np.log10(self.Mzvir(z)/self.Msun)+0.026)
+
+    def tdynz(self,z):
+        Oz_z = self.OmegaM*(1.+z)**3/self.g(z)
+        return 1.628/self.h*(self.Delc(Oz_z-1.)/178.0)**-0.5/(self.Hubble(z)/self.H0)*1.e9*self.yr
+
+    def msolve(self,m, z):
+        return self.AMz(z)*(m/self.tdynz(z))*(m/self.Mzvir(z))**self.zetaMz(z)/(self.Hubble(z)*(1+z))
+
+    def m_stripped(self, ma, za, z0):
+        zcalc = np.linspace(za,z0,100)
+        sol = odeint(self.msolve,ma,zcalc)
+        return sol[-1]
     
     def subhalo_properties_calc(self, dz=0.1, zmax=7.0, N_ma=500, sigmalogc=0.128,
                                 N_herm=5, logmamin=-6, logmamax=None, N_hermNa=200, Na_model=3, 
@@ -376,33 +402,13 @@ class subhalo_properties(halo_model):
         survive   = np.zeros((len(zdist),N_herm,len(ma200)))
         m0_matrix = np.zeros((len(zdist),N_herm,len(ma200)))
 
-        def Mzvir(z):
-            Mz200 = self.Mzzi(self.M0,z,0.)
-            Mvir = self.Mvir_from_M200(Mz200,z)
-            return Mvir
-
-        def AMz(z):
-            log10a = (-0.0003*np.log10(Mzvir(z)/self.Msun)+0.02)*z \
-                         +(0.011*np.log10(Mzvir(z)/self.Msun)-0.354)
-            return 10.**log10a
-
-        def zetaMz(z):
-            return (0.00012*np.log10(Mzvir(z)/self.Msun)-0.0033)*z \
-                       +(-0.0011*np.log10(Mzvir(z)/self.Msun)+0.026)
-
-        def tdynz(z):
-            Oz_z = self.OmegaM*(1.+z)**3/self.g(z)
-            return 1.628/self.h*(self.Delc(Oz_z-1.)/178.0)**-0.5/(self.Hubble(z)/self.H0)*1.e9*self.yr
-
-        def msolve(m, z):
-            return AMz(z)*(m/tdynz(z))*(m/Mzvir(z))**zetaMz(z)/(self.Hubble(z)*(1+z))
-
         for iz in range(len(zdist)):
             ma           = self.Mvir_from_M200(ma200,zdist[iz])
             Oz           = self.OmegaM*(1.+zdist[iz])**3/self.g(zdist[iz])
-            zcalc        = np.linspace(zdist[iz],redshift,100)
-            sol          = odeint(msolve,ma,zcalc)
-            m0           = sol[-1]
+            # zcalc        = np.linspace(zdist[iz],redshift,100)
+            # sol          = odeint(self.msolve,ma,zcalc)
+            # m0           = sol[-1]
+            m0           = self.m_stripped(ma,zdist[iz],redshift)
             c200sub      = self.conc200(ma200,zdist[iz])
             rvirsub      = (3.*ma/(4.*np.pi*self.rhocrit0*self.g(zdist[iz]) \
                                *self.Delc(Oz-1)))**(1./3.)
