@@ -208,6 +208,19 @@ class subhalo_properties(halo_model):
 
     
     def __init__(self, M0, redshift=0.0, M0_at_redshift=False):
+        """ Initial function of the class. 
+        
+        -----
+        Input
+        -----
+        M0: Mass of the host halo defined as M_{200} (200 times critial density) at *z = 0*.
+            Note that this is *not* the host mass at the given redshift! It can be obtained
+            via Mzi(M0,redshift). If you want to give this parameter as the mass at the given
+            redshift, then turn 'M0_at_redshift' parameter on (see below).
+
+        (Optional) redshift:       Redshift of interest. (default: 0)
+        (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
+        """
         halo_model.__init__(self)
         if M0_at_redshift:
             Mz        = M0
@@ -296,21 +309,15 @@ class subhalo_properties(halo_model):
         return Na
 
     
-    def subhalo_properties_calc(self, M0, redshift=0.0, dz=0.1, zmax=7.0, N_ma=500, sigmalogc=0.128,
+    def subhalo_properties_calc(self, dz=0.1, zmax=7.0, N_ma=500, sigmalogc=0.128,
                                 N_herm=5, logmamin=-6, logmamax=None, N_hermNa=200, Na_model=3, 
-                                ct_th=0.77, profile_change=True, M0_at_redshift=False):
+                                ct_th=0.77, profile_change=True):
         """
         This is the main function of SASHIMI-C, which makes a semi-analytical subhalo catalog.
         
         -----
         Input
         -----
-        M0: Mass of the host halo defined as M_{200} (200 times critial density) at *z = 0*.
-            Note that this is *not* the host mass at the given redshift! It can be obtained
-            via Mzi(M0,redshift). If you want to give this parameter as the mass at the given
-            redshift, then turn 'M0_at_redshift' parameter on (see below).
-        
-        (Optional) redshift:       Redshift of interest. (default: 0)
         (Optional) dz:             Grid of redshift of halo accretion. (default 0.1)
         (Optional) zmax:           Maximum redshift to start the calculation of evolution from. (default: 7.)
         (Optional) N_ma:           Number of logarithmic grid of subhalo mass at accretion defined as M_{200}).
@@ -330,7 +337,6 @@ class subhalo_properties(halo_model):
                                    be completely desrupted. Suggested values: 0.77 (default) or 0 (no desruption).
         (Optional) profile_change: Whether we implement the evolution of subhalo density profile through tidal
                                    mass loss. (default: True)
-        (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
         
         ------
         Output
@@ -356,7 +362,8 @@ class subhalo_properties(halo_model):
         #     M0        = fint(Mz)
         # self.M0       = M0
         # self.redshift = redshift
-        
+        redshift = self.redshift
+        M0 = self.M0
         zdist = np.arange(redshift+dz,zmax+dz,dz)
         if logmamax==None:
             logmamax = np.log10(0.1*M0/self.Msun)
@@ -370,7 +377,7 @@ class subhalo_properties(halo_model):
         m0_matrix = np.zeros((len(zdist),N_herm,len(ma200)))
 
         def Mzvir(z):
-            Mz200 = self.Mzzi(M0,z,0.)
+            Mz200 = self.Mzzi(self.M0,z,0.)
             Mvir = self.Mvir_from_M200(Mz200,z)
             return Mvir
 
@@ -516,9 +523,8 @@ class subhalo_observables(subhalo_properties):
 
         subhalo_properties.__init__(self, M0_per_Msun, redshift, M0_at_redshift)
         ma200, z_a, rs_a, rhos_a, m0, rs0, rhos0, ct0, weight, survive \
-            = self.subhalo_properties_calc(M0_per_Msun*self.Msun,redshift,dz,zmax,N_ma,sigmalogc,N_herm,
-                                           logmamin,logmamax,N_hermNa,Na_model,ct_th,profile_change,
-                                           M0_at_redshift)
+            = self.subhalo_properties_calc(dz,zmax,N_ma,sigmalogc,N_herm,
+                                           logmamin,logmamax,N_hermNa,Na_model,ct_th,profile_change)
         self.ma200  = ma200[survive]
         self.z_a    = z_a[survive]
         self.rs_a   = rs_a[survive]
