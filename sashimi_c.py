@@ -207,7 +207,7 @@ class halo_model(cosmology):
 class subhalo_properties(halo_model):
 
     
-    def __init__(self, M0, redshift=0.0, M0_at_redshift=False):
+    def __init__(self, M0, redshift=0.0, zmax=7.0, M0_at_redshift=False):
         """ Initial function of the class. 
         
         -----
@@ -219,6 +219,7 @@ class subhalo_properties(halo_model):
             redshift, then turn 'M0_at_redshift' parameter on (see below).
 
         (Optional) redshift:       Redshift of interest. (default: 0)
+        (Optional) zmax:           Maximum redshift to start the calculation of evolution from. (default: 7.)
         (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
         """
         halo_model.__init__(self)
@@ -227,8 +228,10 @@ class subhalo_properties(halo_model):
             M0_list   = np.logspace(0.,3.,1000)*Mz
             fint      = interp1d(self.Mzi(M0_list,redshift),M0_list)
             M0        = fint(Mz)
-        self.M0       = M0
         self.redshift = redshift
+        self.zmax     = zmax
+        self.M0       = M0
+        
 
     
     def Ffunc(self, dela, s1, s2):
@@ -527,7 +530,7 @@ class subhalo_observables(subhalo_properties):
 
         """
 
-        subhalo_properties.__init__(self, M0_per_Msun, redshift, M0_at_redshift)
+        subhalo_properties.__init__(self, M0_per_Msun, redshift, zmax, M0_at_redshift)
         ma200, z_a, rs_a, rhos_a, m0, rs0, rhos0, ct0, weight, survive \
             = self.subhalo_properties_calc(dz,zmax,N_ma,sigmalogc,N_herm,
                                            logmamin,logmamax,N_hermNa,Na_model,ct_th,profile_change)
