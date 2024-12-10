@@ -207,8 +207,15 @@ class halo_model(cosmology):
 class subhalo_properties(halo_model):
 
     
-    def __init__(self):
+    def __init__(self, M0, redshift=0.0, M0_at_redshift=False):
         halo_model.__init__(self)
+        if M0_at_redshift:
+            Mz        = M0
+            M0_list   = np.logspace(0.,3.,1000)*Mz
+            fint      = interp1d(self.Mzi(M0_list,redshift),M0_list)
+            M0        = fint(Mz)
+        self.M0       = M0
+        self.redshift = redshift
 
     
     def Ffunc(self, dela, s1, s2):
@@ -341,14 +348,14 @@ class subhalo_properties(halo_model):
         survive:  If that subhalo survive against tidal disruption or not.
         
         """
-
-        if M0_at_redshift:
-            Mz        = M0
-            M0_list   = np.logspace(0.,3.,1000)*Mz
-            fint      = interp1d(self.Mzi(M0_list,redshift),M0_list)
-            M0        = fint(Mz)
-        self.M0       = M0
-        self.redshift = redshift
+        # NOTE: Following lines have been moved to "__init__" function.
+        # if M0_at_redshift:
+        #     Mz        = M0
+        #     M0_list   = np.logspace(0.,3.,1000)*Mz
+        #     fint      = interp1d(self.Mzi(M0_list,redshift),M0_list)
+        #     M0        = fint(Mz)
+        # self.M0       = M0
+        # self.redshift = redshift
         
         zdist = np.arange(redshift+dz,zmax+dz,dz)
         if logmamax==None:
@@ -507,7 +514,7 @@ class subhalo_observables(subhalo_properties):
 
         """
 
-        subhalo_properties.__init__(self)
+        subhalo_properties.__init__(self, M0_per_Msun, redshift, M0_at_redshift)
         ma200, z_a, rs_a, rhos_a, m0, rs0, rhos0, ct0, weight, survive \
             = self.subhalo_properties_calc(M0_per_Msun*self.Msun,redshift,dz,zmax,N_ma,sigmalogc,N_herm,
                                            logmamin,logmamax,N_hermNa,Na_model,ct_th,profile_change,
