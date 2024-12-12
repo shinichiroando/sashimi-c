@@ -364,7 +364,7 @@ class subhalo_properties(halo_model):
 
         def Mzvir(z):
             Mz200 = self.Mzzi(M0,z,0.)
-            Mvir = self.Mvir_from_M200(Mz200,z)
+            Mvir = self.Mvir_from_M200_fit(Mz200,z)
             return Mvir
 
         def AMz(z):
@@ -384,7 +384,7 @@ class subhalo_properties(halo_model):
             return AMz(z)*(m/tdynz(z))*(m/Mzvir(z))**zetaMz(z)/(self.Hubble(z)*(1+z))
 
         for iz in range(len(zdist)):
-            ma           = self.Mvir_from_M200(ma200,zdist[iz])
+            ma           = self.Mvir_from_M200_fit(ma200,zdist[iz])
             Oz           = self.OmegaM*(1.+zdist[iz])**3/self.g(zdist[iz])
             zcalc        = np.linspace(zdist[iz],redshift,100)
             sol          = odeint(msolve,ma,zcalc)
