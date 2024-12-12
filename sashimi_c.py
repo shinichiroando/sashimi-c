@@ -558,7 +558,7 @@ class TidalStrippingSolver(halo_model):
         return ma * np.exp(eps)
     
     
-    def subhalo_mass_stripped(self,ma,za,z,method="odeint",**kwargs):
+    def subhalo_mass_stripped(self,ma,za,z,method="pert2_shanks",**kwargs):
         """ A wrapper function to calculate subhalo mass stripping.
         
         Parameters
@@ -691,7 +691,7 @@ class subhalo_properties(halo_model):
     
     def subhalo_properties_calc(self, M0, redshift=0.0, dz=0.1, zmax=7.0, N_ma=500, sigmalogc=0.128,
                                 N_herm=5, logmamin=-6, logmamax=None, N_hermNa=200, Na_model=3, 
-                                ct_th=0.77, profile_change=True, M0_at_redshift=False, method="odeint", **kwargs):
+                                ct_th=0.77, profile_change=True, M0_at_redshift=False, method="pert2_shanks", **kwargs):
         """
         This is the main function of SASHIMI-C, which makes a semi-analytical subhalo catalog.
         
@@ -839,7 +839,7 @@ class subhalo_observables(subhalo_properties):
     
     def __init__(self, M0_per_Msun, redshift=0., dz=0.1, zmax=7.0, N_ma=500, sigmalogc=0.128,
                  N_herm=5, logmamin=-6, logmamax=None, N_hermNa=200, Na_model=3,
-                 ct_th=0.77, profile_change=True, M0_at_redshift=False,method="odeint", **kwargs):
+                 ct_th=0.77, profile_change=True, M0_at_redshift=False,method="pert2_shanks", **kwargs):
         """
         This class computes various subhalo observables in a host halo. 
         
