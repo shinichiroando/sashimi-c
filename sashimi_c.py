@@ -12,8 +12,10 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 
 
 def memoize_with_pickle(cache_dir="cache"):
-    """A decorator to cache the results of an instance method or function in a pickle file.
-    It ignores 'self' when creating the cache key, so the cache is shared across all instances."""
+    """
+    A decorator to cache the results of an instance method or function in a pickle file.
+    It ignores 'self' when creating the cache key, so the cache is shared across all instances.
+    """
     import os
     import pickle
     import hashlib
@@ -39,6 +41,8 @@ def memoize_with_pickle(cache_dir="cache"):
                 return result
         return wrapper
     return decorator
+
+
 
 
 class units_and_constants:
@@ -232,6 +236,7 @@ class halo_model(cosmology):
 
 
 
+
 class TidalStrippingSolver(halo_model):
     """ Solve the tidal stripping equation for a given subhalo. """
     
@@ -326,26 +331,32 @@ class TidalStrippingSolver(halo_model):
         Mvir = self.Mvir_from_M200_fit(Mz200,z)
         return Mvir
 
+
     def AMz(self,z):
         log10a = (-0.0003*np.log10(self.Mzvir(z)/self.Msun)+0.02)*z \
                         +(0.011*np.log10(self.Mzvir(z)/self.Msun)-0.354)
         return 10.**log10a
 
+
     def zetaMz(self,z):
         return (0.00012*np.log10(self.Mzvir(z)/self.Msun)-0.0033)*z \
                     +(-0.0011*np.log10(self.Mzvir(z)/self.Msun)+0.026)
+
 
     def tdynz(self,z):
         Oz_z = self.OmegaM*(1.+z)**3/self.g(z)
         return 1.628/self.h*(self.Delc(Oz_z-1.)/178.0)**-0.5/(self.Hubble(z)/self.H0)*1.e9*self.yr
 
+
     def msolve(self,m, z):
         return self.AMz(z)*(m/self.tdynz(z))*(m/self.Mzvir(z))**self.zetaMz(z)/(self.Hubble(z)*(1+z))
+
 
     def subhalo_mass_stripped_odeint(self, ma, za, z0, **kwargs):
         zcalc = np.linspace(za,z0,100)
         sol = odeint(self.msolve,ma,zcalc,**kwargs)
         return sol[-1]
+
     
     # Functions to calculate perturbative corrections to the subhalo mass function
     def Phi(self,z):
@@ -538,6 +549,7 @@ class TidalStrippingSolver(halo_model):
         # display(df[(df['z'] > 4) & (df['z'] < 6)])
         return ma * np.exp(eps)
     
+    
     def subhalo_mass_stripped_pert3(self, ma, za, z):
         """Calculate subhalo mass stripping using third-order perturbation."""
         eps_0 = self.eps_0(za, z)
@@ -602,6 +614,8 @@ class TidalStrippingSolver(halo_model):
                 return self.subhalo_mass_stripped_pert3(ma,za,z)
             case _:
                 raise ValueError(f"Invalid method: {method}")
+
+
 
     
 class subhalo_properties(halo_model):
@@ -689,7 +703,7 @@ class subhalo_properties(halo_model):
         return Na
 
     
-    def subhalo_properties_calc(self, M0, redshift=0.0, dz=0.1, zmax=7.0, N_ma=500, sigmalogc=0.128,
+    def subhalo_properties_calc(self, M0, redshift=0.0, dz=0.01, zmax=7.0, N_ma=500, sigmalogc=0.128,
                                 N_herm=5, logmamin=-6, logmamax=None, N_hermNa=200, Na_model=3, 
                                 ct_th=0.77, profile_change=True, M0_at_redshift=False, method="pert2_shanks", **kwargs):
         """
@@ -706,13 +720,13 @@ class subhalo_properties(halo_model):
         (Optional) redshift:       Redshift of interest. (default: 0)
         (Optional) dz:             Grid of redshift of halo accretion. (default 0.1)
         (Optional) zmax:           Maximum redshift to start the calculation of evolution from. (default: 7.)
-        (Optional) N_ma:           Number of logarithmic grid of subhalo mass at accretion defined as M_{200}).
+        (Optional) N_ma:           Number of logarithmic grid of subhalo mass at accretion defined as M_{200}.
                                    (default: 500)
         (Optional) sigmalogc:      rms scatter of concentration parameter defined for log_{10}(c).
                                    (default: 0.128)
         (Optional) N_herm:         Number of grid in Gauss-Hermite quadrature for integral over concentration.
                                    (default: 5)
-        (Optional) logmamin:       Minimum value of subhalo mass at accretion defined as log_{10}(m_{min}/Msun)). 
+        (Optional) logmamin:       Minimum value of subhalo mass at accretion defined as log_{10}(m_{min}/Msun). 
                                    (default: -6)
         (Optional) logmamax:       Maximum value of subhalo mass at accretion defined as log_{10}(m_{max}/Msun).
                                    If None, m_{max}=0.1*M0. (default: None)
@@ -724,14 +738,15 @@ class subhalo_properties(halo_model):
         (Optional) profile_change: Whether we implement the evolution of subhalo density profile through tidal
                                    mass loss. (default: True)
         (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
-        (Optional) method:          Method to calculate the subhalo mass stripping. (default: "odeint")
-                                        - "odeint" : use odeint to solve the differential equation.
-                                        - "pert0" : use perturbative method with zeroth-order correction.
-                                        - "pert1" : use perturbative method with first-order correction.
-                                        - "pert2" : use perturbative method with second-order correction.
-                                        - "pert2_shanks" : use perturbative method with second-order correction and Shanks transformation.
-                                        - "pert3" : use perturbative method with third-order correction.
-        (Optional) kwargs:          Additional arguments for the odeint function.
+        (Optional) method:         Method to calculate the subhalo mass stripping. (default: "pert2_shanks")
+                                      - "odeint" : use odeint to solve the differential equation.
+                                      - "pert0" : use perturbative method with zeroth-order correction.
+                                      - "pert1" : use perturbative method with first-order correction.
+                                      - "pert2" : use perturbative method with second-order correction.
+                                      - "pert2_shanks" : use perturbative method with second-order correction 
+                                        and Shanks transformation.
+                                      - "pert3" : use perturbative method with third-order correction.
+        (Optional) kwargs:         Additional arguments for the odeint function.
         
         ------
         Output
@@ -781,7 +796,7 @@ class subhalo_properties(halo_model):
         for iz in range(len(zdist)):
             ma           = self.Mvir_from_M200_fit(ma200,zdist[iz])
             Oz           = self.OmegaM*(1.+zdist[iz])**3/self.g(zdist[iz])
-            m0 = solver.subhalo_mass_stripped(ma, zdist[iz], redshift, method=method, **kwargs)
+            m0           = solver.subhalo_mass_stripped(ma, zdist[iz], redshift, method=method, **kwargs)
             c200sub      = self.conc200(ma200,zdist[iz])
             rvirsub      = (3.*ma/(4.*np.pi*self.rhocrit0*self.g(zdist[iz]) \
                                *self.Delc(Oz-1)))**(1./3.)
@@ -837,7 +852,7 @@ class subhalo_properties(halo_model):
 class subhalo_observables(subhalo_properties):
     
     
-    def __init__(self, M0_per_Msun, redshift=0., dz=0.1, zmax=7.0, N_ma=500, sigmalogc=0.128,
+    def __init__(self, M0_per_Msun, redshift=0., dz=0.01, zmax=7.0, N_ma=500, sigmalogc=0.128,
                  N_herm=5, logmamin=-6, logmamax=None, N_hermNa=200, Na_model=3,
                  ct_th=0.77, profile_change=True, M0_at_redshift=False,method="pert2_shanks", **kwargs):
         """
@@ -855,13 +870,13 @@ class subhalo_observables(subhalo_properties):
         (Optional) redshift:       Redshift of interest. (default: 0)
         (Optional) dz:             Grid of redshift of halo accretion. (default 0.1)
         (Optional) zmax:           Maximum redshift to start the calculation of evolution from. (default: 7.)
-        (Optional) N_ma:           Number of logarithmic grid of subhalo mass at accretion defined as M_{200}).
+        (Optional) N_ma:           Number of logarithmic grid of subhalo mass at accretion defined as M_{200}.
                                    (default: 500)
         (Optional) sigmalogc:      rms scatter of concentration parameter defined for log_{10}(c).
                                    (default: 0.128)
         (Optional) N_herm:         Number of grid in Gauss-Hermite quadrature for integral over concentration.
                                    (default: 5)
-        (Optional) logmamin:       Minimum value of subhalo mass at accretion defined as log_{10}(m_{min}/Msun)). 
+        (Optional) logmamin:       Minimum value of subhalo mass at accretion defined as log_{10}(m_{min}/Msun). 
                                    (default: -6)
         (Optional) logmamax:       Maximum value of subhalo mass at accretion defined as log_{10}(m_{max}/Msun).
                                    If None, m_{max}=0.1*M0. (default: None)
@@ -873,14 +888,15 @@ class subhalo_observables(subhalo_properties):
         (Optional) profile_change: Whether we implement the evolution of subhalo density profile through tidal
                                    mass loss. (default: True)
         (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
-        (Optional) method:          Method to calculate the subhalo mass stripping. (default: "odeint")
-                                        - "odeint" : use odeint to solve the differential equation.
-                                        - "pert0" : use perturbative method with zeroth-order correction.
-                                        - "pert1" : use perturbative method with first-order correction.
-                                        - "pert2" : use perturbative method with second-order correction.
-                                        - "pert2_shanks" : use perturbative method with second-order correction and Shanks transformation.
-                                        - "pert3" : use perturbative method with third-order correction.
-        (Optional) kwargs:          Additional arguments for the odeint function.
+        (Optional) method:         Method to calculate the subhalo mass stripping. (default: "pert2_shanks")
+                                      - "odeint" : use odeint to solve the differential equation.
+                                      - "pert0" : use perturbative method with zeroth-order correction.
+                                      - "pert1" : use perturbative method with first-order correction.
+                                      - "pert2" : use perturbative method with second-order correction.
+                                      - "pert2_shanks" : use perturbative method with second-order correction 
+                                        and Shanks transformation.
+                                      - "pert3" : use perturbative method with third-order correction.
+        (Optional) kwargs:         Additional arguments for the odeint function.
 
 
         

@@ -8,6 +8,7 @@ The codes allow to calculate various subhalo properties efficiently using semi-a
 
 - Shin'ichiro Ando
 - Nagisa Hiroshima
+- Shunichi Horigome 
 - Ariane Dekker
 
 Special thanks to Tomoaki Ishiyama, who provided data of cosmological N-body simulations that were used for calibration of model output.
@@ -25,7 +26,7 @@ Please send enquiries to Shin'ichiro Ando (s.ando@uva.nl). We have checked that 
 
 ## What are the future developments for SASHIMI?
 
-- Extension to different dark matter models. The case of warm dark matter (WDM) has finished: https://github.com/shinichiroando/sashimi-w
+- Extension to different dark matter models. The case of warm dark matter (WDM) and self-interacting dark matter (SIDM) has finished: https://github.com/shinichiroando/sashimi-w, https://github.com/shinichiroando/sashimi-si
 - Including spatial information.
 - Including intrinsic variance that accompanies the host halo evolution.
 - Application to various primordial power spectra.
@@ -67,32 +68,41 @@ For inputs and outputs of this function, see its documentation. For reference, i
 -----
 Input
 -----
-M0: Mass of the host halo defined as M_{200} (200 times critical density) at *z = 0*.
+M0: Mass of the host halo defined as M_{200} (200 times critial density) at *z = 0*.
     Note that this is *not* the host mass at the given redshift! It can be obtained
     via Mzi(M0,redshift). If you want to give this parameter as the mass at the given
     redshift, then turn 'M0_at_redshift' parameter on (see below).
-      
+        
 (Optional) redshift:       Redshift of interest. (default: 0)
 (Optional) dz:             Grid of redshift of halo accretion. (default 0.1)
 (Optional) zmax:           Maximum redshift to start the calculation of evolution from. (default: 7.)
-(Optional) N_ma:           Number of logarithmic grid of subhalo mass at accretion defined as M_{200}).
+(Optional) N_ma:           Number of logarithmic grid of subhalo mass at accretion defined as M_{200}.
                            (default: 500)
 (Optional) sigmalogc:      rms scatter of concentration parameter defined for log_{10}(c).
                            (default: 0.128)
 (Optional) N_herm:         Number of grid in Gauss-Hermite quadrature for integral over concentration.
                            (default: 5)
-(Optional) logmamin:       Minimum value of subhalo mass at accretion defined as log_{10}(m_{min}/Msun)). 
+(Optional) logmamin:       Minimum value of subhalo mass at accretion defined as log_{10}(m_{min}/Msun). 
                            (default: -6)
 (Optional) logmamax:       Maximum value of subhalo mass at accretion defined as log_{10}(m_{max}/Msun).
                            If None, m_{max}=0.1*M0. (default: None)
-(Optional) N_hermNa:       Number of grid in Gauss-Hermite quadrature for integral over host evolution, 
+(Optional) N_hermNa:       Number of grid in Gauss-Hermite quadrature for integral over host evoluation, 
                            used in Na_calc. (default: 200)
 (Optional) Na_model:       Model number of EPS defined in Yang et al. (2011). (default: 3)
 (Optional) ct_th:          Threshold value for c_t(=r_t/r_s) parameter, below which a subhalo is assumed to
-                           be completely disrupted. Suggested values: 0.77 (default) or 0 (no disruption).
+                           be completely desrupted. Suggested values: 0.77 (default) or 0 (no desruption).
 (Optional) profile_change: Whether we implement the evolution of subhalo density profile through tidal
                            mass loss. (default: True)
 (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
+(Optional) method:         Method to calculate the subhalo mass stripping. (default: "pert2_shanks")
+                                - "odeint" : use odeint to solve the differential equation.
+                                - "pert0" : use perturbative method with zeroth-order correction.
+                                - "pert1" : use perturbative method with first-order correction.
+                                - "pert2" : use perturbative method with second-order correction.
+                                - "pert2_shanks" : use perturbative method with second-order correction 
+                                and Shanks transformation.
+                                - "pert3" : use perturbative method with third-order correction.
+(Optional) kwargs:         Additional arguments for the odeint function.
         
 ------
 Output
