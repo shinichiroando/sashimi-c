@@ -4,41 +4,11 @@ from scipy import interpolate
 from scipy import optimize
 from scipy import special
 from scipy.integrate import odeint
-from scipy.integrate import cumulative_trapezoid as cumulative_integrate
 from scipy.interpolate import interp1d
 from numpy.polynomial.hermite import hermgauss
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 
-
-def memoize_with_pickle(cache_dir="cache"):
-    """A decorator to cache the results of an instance method or function in a pickle file.
-    It ignores 'self' when creating the cache key, so the cache is shared across all instances."""
-    import os
-    import pickle
-    import hashlib
-
-    os.makedirs(cache_dir, exist_ok=True)
-
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            # If this is a method, args[0] is 'self'.
-            # We'll exclude it from the key to allow caching across instances.
-            key_source = (func.__name__, args[1:], tuple(sorted(kwargs.items())))
-            key = hashlib.md5(pickle.dumps(key_source)).hexdigest()
-            cache_file = os.path.join(cache_dir, f"{key}.pkl")
-
-            if os.path.exists(cache_file):
-                with open(cache_file, "rb") as f:
-                    result = pickle.load(f)
-                return result
-            else:
-                result = func(*args, **kwargs)
-                with open(cache_file, "wb") as f:
-                    pickle.dump(result, f)
-                return result
-        return wrapper
-    return decorator
 
 
 
@@ -237,92 +207,10 @@ class halo_model(cosmology):
 class subhalo_properties(halo_model):
 
     
-    def __init__(self, M0, redshift=0.0, zmax=7.0, n_z_interp=64, M0_at_redshift=False):
-        """ Initial function of the class. 
-        
-        -----
-        Input
-        -----
-        M0: Mass of the host halo defined as M_{200} (200 times critial density) at *z = 0*.
-            Note that this is *not* the host mass at the given redshift! It can be obtained
-            via Mzi(M0,redshift). If you want to give this parameter as the mass at the given
-            redshift, then turn 'M0_at_redshift' parameter on (see below).
-
-        (Optional) redshift:       Redshift of interest. (default: 0)
-        (Optional) zmax:           Maximum redshift to start the calculation of evolution from. (default: 7.)
-        (Optional) n_z_interp:     TODO
-        (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
-        """
+    def __init__(self):
         halo_model.__init__(self)
-        if M0_at_redshift:
-            Mz        = M0
-            M0_list   = np.logspace(0.,3.,1000)*Mz
-            fint      = interp1d(self.Mzi(M0_list,redshift),M0_list)
-            M0        = fint(Mz)
-        self.redshift = redshift
-        self.zmax     = zmax
-        self.n_z_interp      = n_z_interp
-        self.M0       = M0
-
-
-    @property
-    def M0(self):
-        return self._M0
-
-
-    @M0.setter
-    def M0(self, value):
-        self._M0 = value
-        self.reset_interpolation(
-            za_max=self.zmax, 
-            z_min=self.redshift,
-            n_z=self.n_z_interp)
 
     
-    def reset_interpolation(self, za_max, z_min, n_z):
-        """ Reset interpolation for epsilon functions. 
-        
-        This function is called when the mass of the host
-        halo is changed.
-
-        -----
-        Input
-        -----
-        za_max: float
-            Maximum redshift to start the calculation of evolution from.
-        z_min: float
-            Minimum redshift to end the calculation of evolution to.
-        n_z: int
-            Number of redshifts to calculate epsilon functions.
-        """
-        _z, _eps_0 = self._eps_0(za_max, z_min, n_z)
-        _, _eps_10, _eps_11 = self._eps_1(za_max, z_min, n_z)
-        _, _eps_20, _eps_21, _eps_22 = self._eps_2(za_max, z_min, n_z)
-        _, _eps_30, _eps_31, _eps_32, _eps_33 = self._eps_3(za_max, z_min, n_z)
-        # get the interpolation functions as indefinite integrals
-        self._eps_0_interp = lambda z: np.interp(z, _z[::-1], _eps_0[::-1])
-        self._eps_10_interp = lambda z: np.interp(z, _z[::-1], _eps_10[::-1])
-        self._eps_11_interp = lambda z: np.interp(z, _z[::-1], _eps_11[::-1])
-        self._eps_20_interp = lambda z: np.interp(z, _z[::-1], _eps_20[::-1])
-        self._eps_21_interp = lambda z: np.interp(z, _z[::-1], _eps_21[::-1])
-        self._eps_22_interp = lambda z: np.interp(z, _z[::-1], _eps_22[::-1])
-        self._eps_30_interp = lambda z: np.interp(z, _z[::-1], _eps_30[::-1])
-        self._eps_31_interp = lambda z: np.interp(z, _z[::-1], _eps_31[::-1])
-        self._eps_32_interp = lambda z: np.interp(z, _z[::-1], _eps_32[::-1])
-        self._eps_33_interp = lambda z: np.interp(z, _z[::-1], _eps_33[::-1])
-        # define the epsilon functions as definite integrals from za to z
-        self.eps_0 = lambda _za, _z: self._eps_0_interp(_z) - self._eps_0_interp(_za)
-        self.eps_10 = lambda _za, _z: self._eps_10_interp(_z) - self._eps_10_interp(_za)
-        self.eps_11 = lambda _za, _z: self._eps_11_interp(_z) - self._eps_11_interp(_za)
-        self.eps_20 = lambda _za, _z: self._eps_20_interp(_z) - self._eps_20_interp(_za)
-        self.eps_21 = lambda _za, _z: self._eps_21_interp(_z) - self._eps_21_interp(_za)
-        self.eps_22 = lambda _za, _z: self._eps_22_interp(_z) - self._eps_22_interp(_za)
-        self.eps_30 = lambda _za, _z: self._eps_30_interp(_z) - self._eps_30_interp(_za)
-        self.eps_31 = lambda _za, _z: self._eps_31_interp(_z) - self._eps_31_interp(_za)
-        self.eps_32 = lambda _za, _z: self._eps_32_interp(_z) - self._eps_32_interp(_za)
-        self.eps_33 = lambda _za, _z: self._eps_33_interp(_z) - self._eps_33_interp(_za)
-
-
     def Ffunc(self, dela, s1, s2):
         """ Returns Eq. (12) of Yang et al. (2011) """
         return 1/np.sqrt(2.*np.pi)*dela/(s2-s1)**1.5
@@ -400,479 +288,22 @@ class subhalo_properties(halo_model):
         Na = F2*self.dsdm(ma,0.)*self.dMdz(Mhost,zacc_2d,z0)*(1.+zacc_2d)
         return Na
 
-
-    def Mzvir(self,z):
-        Mz200 = self.Mzzi(self.M0,z,0.)
-        Mvir = self.Mvir_from_M200_fit(Mz200,z)
-        return Mvir
-
-    def AMz(self,z):
-        log10a = (-0.0003*np.log10(self.Mzvir(z)/self.Msun)+0.02)*z \
-                        +(0.011*np.log10(self.Mzvir(z)/self.Msun)-0.354)
-        return 10.**log10a
-
-    def zetaMz(self,z):
-        return (0.00012*np.log10(self.Mzvir(z)/self.Msun)-0.0033)*z \
-                    +(-0.0011*np.log10(self.Mzvir(z)/self.Msun)+0.026)
-
-    def tdynz(self,z):
-        Oz_z = self.OmegaM*(1.+z)**3/self.g(z)
-        return 1.628/self.h*(self.Delc(Oz_z-1.)/178.0)**-0.5/(self.Hubble(z)/self.H0)*1.e9*self.yr
-
-    def msolve(self,m, z):
-        return self.AMz(z)*(m/self.tdynz(z))*(m/self.Mzvir(z))**self.zetaMz(z)/(self.Hubble(z)*(1+z))
-
-    def subhalo_mass_stripped_odeint(self, ma, za, z0, **kwargs):
-        zcalc = np.linspace(za,z0,100)
-        sol = odeint(self.msolve,ma,zcalc,**kwargs)
-        return sol[-1]
     
-    # Functions to calculate perturbative corrections to the subhalo mass function
-    def Phi(self,z):
-        """ subhalo stripping factor assuming zetaMz(z) = 0.
-        The stripping rate dm/dt is given by
-          dm/dt(z) = m(z) * Phi(z) * (m(z)/Mzvir(z))**zetaMz(z)
-        """
-        return self.AMz(z)/self.tdynz(z)/self.Hubble(z)/(1+z)
-
-    # @memoize_with_pickle()
-    def _eps_0(self,za,z,n_z=64):
-        """ calculate epsilon0.
-        
-        Returns
-        -------
-        _z : array
-            redshift array
-        eps0 : array
-            epsilon0 array.
-        """
-        _z = np.linspace(za,z,n_z)
-        Phi_z = self.Phi(_z)
-        return _z, cumulative_integrate(Phi_z,x=_z,initial=0)
-
-    # def _eps_10(self,za,z,n_z=64):
-    #     """ calculate epsilon10.
-        
-    #     Returns
-    #     -------
-    #     _z : array
-    #         redshift array
-    #     eps10 : array
-    #         epsilon10 array.
-    #     """
-    #     _z, eps_0 = self._eps_0(za,z,n_z)
-    #     Phi_z = self.Phi(_z)
-    #     zeta_z = self.zetaMz(_z)
-    #     ln_Mvir_z = np.log(self.Mzvir(_z))
-    #     integrand = Phi_z * (eps_0 - ln_Mvir_z) * zeta_z
-    #     return _z, cumulative_integrate(integrand,x=_z,initial=0)
-    
-    # def _eps_11(self,za,z,n_z=64):
-    #     """ calculate epsilon11.
-        
-    #     Returns
-    #     -------
-    #     _z : array
-    #         redshift array
-    #     eps11 : array
-    #         epsilon11 array.
-    #     """
-    #     _z = np.linspace(za,z,n_z)
-    #     Phi_z = self.Phi(_z)
-    #     zeta_z = self.zetaMz(_z)
-    #     integrand = Phi_z * zeta_z
-    #     return _z, cumulative_integrate(integrand,x=_z,initial=0)
-    
-    # @memoize_with_pickle()
-    def _eps_1(self,za,z,n_z=64):
-        """ calculate the first order correction.
-
-        The first order correction epsilon_1 is given by the following equation:
-            epsilon_1 = epsilon_10 + epsilon_11 * ln_ma
-        
-        Returns
-        -------
-        _z : array
-            redshift array
-        eps10 : array
-            epsilon10 array.
-        eps11 : array
-            epsilon11 array.
-        """
-        _z, eps_0 = self._eps_0(za,z,n_z)
-        Phi_z = self.Phi(_z)
-        zeta_z = self.zetaMz(_z)
-        ln_Mvir_z = np.log(self.Mzvir(_z))
-        integrand_10 = Phi_z * (eps_0 - ln_Mvir_z) * zeta_z
-        integrand_11 = Phi_z * zeta_z
-        integral_10 = cumulative_integrate(integrand_10,x=_z,initial=0)
-        integral_11 = cumulative_integrate(integrand_11,x=_z,initial=0)
-        return _z, integral_10, integral_11
-
-    # def _eps_20(self,za,z,n_z=64):
-    #     """ calculate epsilon20.
-        
-    #     Returns
-    #     -------
-    #     _z : array
-    #         redshift array
-    #     eps20 : array
-    #         epsilon20 array.
-    #     """
-    #     _z, eps_0 = self._eps_0(za,z,n_z)
-    #     _, eps_10 = self._eps_10(za,z,n_z)
-    #     Phi_z = self.Phi(_z)
-    #     zeta_z = self.zetaMz(_z)
-    #     ln_Mvir_z = np.log(self.Mzvir(_z))
-    #     integrand = Phi_z * zeta_z **2 * (eps_0 - ln_Mvir_z)**2 /2 + Phi_z * zeta_z * eps_10
-    #     return _z, cumulative_integrate(integrand,x=_z,initial=0)
-    
-    # def _eps_21(self,za,z,n_z=64):
-    #     """ calculate epsilon21.
-        
-    #     Returns
-    #     -------
-    #     _z : array
-    #         redshift array
-    #     eps21 : array
-    #         epsilon21 array.
-    #     """
-    #     _z, eps_0 = self._eps_0(za,z,n_z)
-    #     _, eps_11 = self._eps_11(za,z,n_z)
-    #     Phi_z = self.Phi(_z)
-    #     zeta_z = self.zetaMz(_z)
-    #     ln_Mvir_z = np.log(self.Mzvir(_z))
-    #     integrand = Phi_z * zeta_z**2 * (eps_0 - ln_Mvir_z) + Phi_z * zeta_z * eps_11
-    #     return _z, cumulative_integrate(integrand,x=_z,initial=0)
-
-    # def _eps_22(self,za,z,n_z=64):
-    #     """ calculate epsilon22.
-        
-    #     Returns
-    #     -------
-    #     _z : array
-    #         redshift array
-    #     eps22 : array
-    #         epsilon22 array.
-    #     """
-    #     _z = np.linspace(za,z,n_z)
-    #     Phi_z = self.Phi(_z)
-    #     zeta_z = self.zetaMz(_z)
-    #     integrand = Phi_z * zeta_z**2 / 2
-    #     return _z, cumulative_integrate(integrand,x=_z,initial=0)
-    
-    # @memoize_with_pickle()
-    def _eps_2(self,za,z,n_z=64):
-        """ calculate the second order correction.
-
-        The second order correction epsilon_2 is given by the following equation:
-            epsilon_2 = epsilon_20 + epsilon_21 * ln_ma + epsilon_22 * ln_ma^2
-        
-        Returns
-        -------
-        _z : array
-            redshift array
-        eps20 : array
-            epsilon20 array.
-        eps21 : array
-            epsilon21 array.
-        eps22 : array
-            epsilon22 array.
-        """
-        _z, eps_0 = self._eps_0(za,z,n_z)
-        _, eps_10, eps_11 = self._eps_1(za,z,n_z)
-        Phi_z = self.Phi(_z)
-        zeta_z = self.zetaMz(_z)
-        ln_Mvir_z = np.log(self.Mzvir(_z))
-        integrand_20 = Phi_z * zeta_z **2 * (eps_0 - ln_Mvir_z)**2 /2 + Phi_z * zeta_z * eps_10
-        integrand_21 = Phi_z * zeta_z**2 * (eps_0 - ln_Mvir_z) + Phi_z * zeta_z * eps_11
-        integrand_22 = Phi_z * zeta_z**2 / 2
-        integral_20 = cumulative_integrate(integrand_20,x=_z,initial=0)
-        integral_21 = cumulative_integrate(integrand_21,x=_z,initial=0)
-        integral_22 = cumulative_integrate(integrand_22,x=_z,initial=0)
-        return _z, integral_20, integral_21, integral_22
-
-    # def _eps_30(self, za, z, n_z=64):
-    #     """ calculate epsilon30. 
-        
-    #     Returns
-    #     -------
-    #     _z : array
-    #         redshift array
-    #     eps30 : array
-    #         epsilon30 array.
-    #     """
-    #     _z, eps_0 = self._eps_0(za, z, n_z)
-    #     _, eps_10 = self._eps_10(za, z, n_z)
-    #     _, eps_20 = self._eps_20(za, z, n_z)
-    #     Phi_z = self.Phi(_z)
-    #     zeta_z = self.zetaMz(_z)
-    #     ln_Mvir_z = np.log(self.Mzvir(_z))
-    #     integrand = (Phi_z * (eps_0 - ln_Mvir_z)**3 * zeta_z**3 / 6.0
-    #                  + Phi_z * (eps_0 - ln_Mvir_z) * eps_10 * (zeta_z**2)
-    #                  + Phi_z * eps_20 * zeta_z)
-    #     return _z, cumulative_integrate(integrand, x=_z, initial=0)
-
-
-    # def _eps_31(self, za, z, n_z=64):
-    #     """  calculate epsilon31.
-        
-    #     Returns
-    #     -------
-    #     _z : array
-    #         redshift array
-    #     eps31 : array
-    #         epsilon31 array.
-    #     """
-    #     _z, eps_0 = self._eps_0(za, z, n_z)
-    #     _, eps_10 = self._eps_10(za, z, n_z)
-    #     _, eps_11 = self._eps_11(za, z, n_z)
-    #     _, eps_21 = self._eps_21(za, z, n_z)
-    #     Phi_z = self.Phi(_z)
-    #     zeta_z = self.zetaMz(_z)
-    #     ln_Mvir_z = np.log(self.Mzvir(_z))
-    #     integrand = (Phi_z * (eps_0 - ln_Mvir_z)**2 * (zeta_z**3) / 2.0
-    #                     + Phi_z * eps_10 * (zeta_z**2)
-    #                     + Phi_z * eps_21 * zeta_z
-    #                     + Phi_z * (eps_0 - ln_Mvir_z) * eps_11 * (zeta_z**2))
-    #     return _z, cumulative_integrate(integrand, x=_z, initial=0)
-
-
-    # def _eps_32(self, za, z, n_z=64):
-    #     """ calculate epsilon32.
-
-    #     Returns
-    #     -------
-    #     _z : array
-    #         redshift array
-    #     eps32 : array
-    #         epsilon32 array.
-    #     """
-    #     _z, eps_0 = self._eps_0(za, z, n_z)
-    #     _, eps_11 = self._eps_11(za, z, n_z)
-    #     _, eps_22 = self._eps_22(za, z, n_z)
-    #     Phi_z = self.Phi(_z)
-    #     zeta_z = self.zetaMz(_z)
-    #     ln_Mvir_z = np.log(self.Mzvir(_z))
-    #     integrand = (Phi_z * (eps_0 - ln_Mvir_z) * (zeta_z**3) / 2.0
-    #                     + Phi_z * eps_11 * (zeta_z**2)
-    #                     + Phi_z * eps_22 * zeta_z)
-    #     return _z, cumulative_integrate(integrand, x=_z, initial=0)
-
-
-    # def _eps_33(self, za, z, n_z=64):
-    #     """ calculate epsilon33.
-
-    #     Returns
-    #     -------
-    #     _z : array
-    #         redshift array
-    #     eps33 : array
-    #         epsilon33 array.
-    #     """
-    #     _z = np.linspace(za, z, n_z)
-    #     Phi_z = self.Phi(_z)
-    #     zeta_z = self.zetaMz(_z)
-    #     integrand = Phi_z * (zeta_z**3) / 6.0
-    #     return _z, cumulative_integrate(integrand, x=_z, initial=0)
-
-    # @memoize_with_pickle()
-    def _eps_3(self, za, z, n_z=64):
-        """ calculate the third order correction.
-
-        The third order correction epsilon_3 is given by the following equation:
-            epsilon_3 = epsilon_30 + epsilon_31 * ln_ma + epsilon_32 * ln_ma^2 + epsilon_33 * ln_ma^3
-        
-        Returns
-        -------
-        _z : array
-            redshift array
-        eps30 : array
-            epsilon30 array.
-        eps31 : array
-            epsilon31 array.
-        eps32 : array
-            epsilon32 array.
-        eps33 : array
-            epsilon33 array.
-        """
-        _z, eps_0 = self._eps_0(za, z, n_z)
-        _, eps_10, eps_11 = self._eps_1(za, z, n_z)
-        _, eps_20, eps_21, eps_22 = self._eps_2(za, z, n_z)
-        Phi_z = self.Phi(_z)
-        zeta_z = self.zetaMz(_z)
-        ln_Mvir_z = np.log(self.Mzvir(_z))
-        integrand_30 = (Phi_z * (eps_0 - ln_Mvir_z)**3 * zeta_z**3 / 6.0
-                        + Phi_z * (eps_0 - ln_Mvir_z) * eps_10 * (zeta_z**2)
-                        + Phi_z * eps_20 * zeta_z)
-        integrand_31 = (Phi_z * (eps_0 - ln_Mvir_z)**2 * (zeta_z**3) / 2.0
-                        + Phi_z * eps_10 * (zeta_z**2)
-                        + Phi_z * eps_21 * zeta_z
-                        + Phi_z * (eps_0 - ln_Mvir_z) * eps_11 * (zeta_z**2))
-        integrand_32 = (Phi_z * (eps_0 - ln_Mvir_z) * (zeta_z**3) / 2.0
-                        + Phi_z * eps_11 * (zeta_z**2)
-                        + Phi_z * eps_22 * zeta_z)
-        integrand_33 = Phi_z * (zeta_z**3) / 6.0
-        integral_30 = cumulative_integrate(integrand_30, x=_z, initial=0)
-        integral_31 = cumulative_integrate(integrand_31, x=_z, initial=0)
-        integral_32 = cumulative_integrate(integrand_32, x=_z, initial=0)
-        integral_33 = cumulative_integrate(integrand_33, x=_z, initial=0)
-        return _z, integral_30, integral_31, integral_32, integral_33
-    
-
-    def subhalo_mass_stripped_pert0(self, ma, za, z):
-        """Calculate subhalo mass stripping using zeroth-order perturbation."""
-        eps_0 = self.eps_0(za, z)
-        return ma * np.exp(eps_0)
-    
-    def subhalo_mass_stripped_pert1(self, ma, za, z):
-        """Calculate subhalo mass stripping using first-order perturbation."""
-        eps_0 = self.eps_0(za, z)
-        eps_10 = self.eps_10(za, z)
-        eps_11 = self.eps_11(za, z)
-        ln_ma = np.log(ma)
-        eps = (eps_0 
-               + eps_10 + ln_ma * eps_11)
-        return ma * np.exp(eps)
-    
-    def subhalo_mass_stripped_pert2(self, ma, za, z):
-        """Calculate subhalo mass stripping using second-order perturbation."""
-        eps_0 = self.eps_0(za, z)
-        eps_10 = self.eps_10(za, z)
-        eps_11 = self.eps_11(za, z)
-        eps_20 = self.eps_20(za, z)
-        eps_21 = self.eps_21(za, z)
-        eps_22 = self.eps_22(za, z)
-        ln_ma = np.log(ma)
-        eps = (eps_0 
-               + eps_10 + ln_ma * eps_11 
-               + eps_20 + ln_ma * eps_21 + ln_ma**2 * eps_22)
-        return ma * np.exp(eps)
-    
-    def subhalo_mass_stripped_pert2_shanks(self, ma, za, z):
-        """Calculate subhalo mass stripping using second-order perturbation with Shanks transformation."""
-        eps_0 = self.eps_0(za, z)
-        eps_10 = self.eps_10(za, z)
-        eps_11 = self.eps_11(za, z)
-        eps_20 = self.eps_20(za, z)
-        eps_21 = self.eps_21(za, z)
-        eps_22 = self.eps_22(za, z)
-        ln_ma = np.log(ma)
-        # NOTE: Shanks transformation
-        # For A_n = \sum_{i=0}^{n} a_i, the Shanks transformation is given by
-        #  S_n = A_{n+1} - (A_{n+1} - A_n)^2 / (A_{n+1} - 2A_n + A_{n-1})
-        #      = A_{n+1} - (A_{n+1} - A_n)^2 / ((A_{n+1} - A_n) - (A_n - A_{n-1}))
-        # Since A_n = \sum_{i=0}^{n} a_i, we can write
-        #  S_n = A_{n+1} - a_{n+1}^2 / (a_{n+1} - a_n)
-        # In our case, we calculate the epsilon as eps = \sum_{i=0}^{n} eps_i.
-        # Therefore, we can apply Shanks transformation to eps up to the second order as follows:
-        # S_2 = (eps_0 + eps_1 + eps_2) - eps_2^2 / (eps_2 - eps_1)
-        eps_1 = eps_10 + ln_ma * eps_11
-        eps_2 = eps_20 + ln_ma * eps_21 + ln_ma**2 * eps_22
-        eps_2m1 = (eps_20 - eps_10) + ln_ma * (eps_21 - eps_11) + ln_ma**2 * eps_22
-        eps_shanks = - eps_2**2 / eps_2m1
-        eps_shanks = np.where(np.isnan(eps_shanks), 0, eps_shanks)
-        # When the correction is too small, the Shanks transformation may not be stable.
-        eps_shanks = np.where(np.abs((eps_1+eps_2)/eps_0) < 0.02, 0, eps_shanks)
-        eps = eps_0 + eps_1 + eps_2 + eps_shanks
-        # import pandas as pd
-        # df = pd.DataFrame({'z': _z, 'eps_0': eps_0, 'eps_1': eps_1, 'eps_2': eps_2, 'eps_shanks': eps_shanks, 'eps': eps})
-        # display(df[(df['z'] > 4) & (df['z'] < 6)])
-        return ma * np.exp(eps)
-    
-    def subhalo_mass_stripped_pert3(self, ma, za, z):
-        """Calculate subhalo mass stripping using third-order perturbation."""
-        eps_0 = self.eps_0(za, z)
-        eps_10 = self.eps_10(za, z)
-        eps_11 = self.eps_11(za, z)
-        eps_20 = self.eps_20(za, z)
-        eps_21 = self.eps_21(za, z)
-        eps_22 = self.eps_22(za, z)
-        eps_30 = self.eps_30(za, z)
-        eps_31 = self.eps_31(za, z)
-        eps_32 = self.eps_32(za, z)
-        eps_33 = self.eps_33(za, z)
-        ln_ma = np.log(ma)
-        eps = (eps_0 
-               + eps_10 + ln_ma * eps_11 
-               + eps_20 + ln_ma * eps_21 + ln_ma**2 * eps_22
-               + eps_30 + ln_ma * eps_31 + ln_ma**2 * eps_32 + ln_ma**3 * eps_33)
-        # import pandas as pd
-        # df = pd.DataFrame({
-        #     'z': _z,
-        #     'eps_0': eps_0,
-        #     'eps_10': eps_10,
-        #     'eps_11': eps_11,
-        #     'eps_20': eps_20,
-        #     'eps_21': eps_21,
-        #     'eps_22': eps_22,
-        #     'eps_30': eps_30,
-        #     'eps_31': eps_31,
-        #     'eps_32': eps_32,
-        #     'eps_33': eps_33,
-        #     'eps': eps
-        # })
-        # display(df)
-        return ma * np.exp(eps)
-    
-    
-    def subhalo_mass_stripped(self,ma,za,z,method="odeint",**kwargs):
-        """ A wrapper function to calculate subhalo mass stripping.
-        
-        Parameters
-        ----------
-        ma : float
-            initial subhalo mass.
-        za : float
-            initial redshift.
-        z : float
-            final redshift.
-        method : str, optional
-            method to calculate the subhalo mass stripping.
-            - "odeint" : use odeint to solve the differential equation.
-            - "pert0" : use perturbative method with zeroth-order correction.
-            - "pert1" : use perturbative method with first-order correction.
-            - "pert2" : use perturbative method with second-order correction.
-            - "pert2_shanks" : use perturbative method with second-order correction and Shanks transformation.
-            - "pert3" : use perturbative method with third-order correction.
-        kwargs : dict, optional
-            additional arguments for the odeint function.
-
-        Returns
-        -------
-        zcalc : array
-            redshift array.
-        mcalc : array
-            subhalo mass array.
-        """
-        # print(f"Calculating subhalo mass stripping using {method} method.")
-        # print(f"Initial redshift: {za}, final redshift: {z}")
-        match method:
-            case "odeint":
-                return self.subhalo_mass_stripped_odeint(ma,za,z,**kwargs)
-            case "pert0":
-                return self.subhalo_mass_stripped_pert0(ma,za,z)
-            case "pert1":
-                return self.subhalo_mass_stripped_pert1(ma,za,z)
-            case "pert2":
-                return self.subhalo_mass_stripped_pert2(ma,za,z)
-            case "pert2_shanks":
-                return self.subhalo_mass_stripped_pert2_shanks(ma,za,z)
-            case "pert3":
-                return self.subhalo_mass_stripped_pert3(ma,za,z)
-            case _:
-                raise ValueError(f"Invalid method: {method}")
-
-    
-    def subhalo_properties_calc(self, dz=0.1, zmax=7.0, N_ma=500, sigmalogc=0.128,
+    def subhalo_properties_calc(self, M0, redshift=0.0, dz=0.1, zmax=7.0, N_ma=500, sigmalogc=0.128,
                                 N_herm=5, logmamin=-6, logmamax=None, N_hermNa=200, Na_model=3, 
-                                ct_th=0.77, profile_change=True, method="odeint", **kwargs):
+                                ct_th=0.77, profile_change=True, M0_at_redshift=False):
         """
         This is the main function of SASHIMI-C, which makes a semi-analytical subhalo catalog.
         
         -----
         Input
         -----
+        M0: Mass of the host halo defined as M_{200} (200 times critial density) at *z = 0*.
+            Note that this is *not* the host mass at the given redshift! It can be obtained
+            via Mzi(M0,redshift). If you want to give this parameter as the mass at the given
+            redshift, then turn 'M0_at_redshift' parameter on (see below).
+        
+        (Optional) redshift:       Redshift of interest. (default: 0)
         (Optional) dz:             Grid of redshift of halo accretion. (default 0.1)
         (Optional) zmax:           Maximum redshift to start the calculation of evolution from. (default: 7.)
         (Optional) N_ma:           Number of logarithmic grid of subhalo mass at accretion defined as M_{200}).
@@ -892,8 +323,7 @@ class subhalo_properties(halo_model):
                                    be completely desrupted. Suggested values: 0.77 (default) or 0 (no desruption).
         (Optional) profile_change: Whether we implement the evolution of subhalo density profile through tidal
                                    mass loss. (default: True)
-        (Optional) method:          Method to calculate the subhalo mass stripping. (default: "odeint")
-        (Optional) kwargs:          Additional arguments for the odeint function.
+        (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
         
         ------
         Output
@@ -911,16 +341,15 @@ class subhalo_properties(halo_model):
         survive:  If that subhalo survive against tidal disruption or not.
         
         """
-        # NOTE: Following lines have been moved to "__init__" function.
-        # if M0_at_redshift:
-        #     Mz        = M0
-        #     M0_list   = np.logspace(0.,3.,1000)*Mz
-        #     fint      = interp1d(self.Mzi(M0_list,redshift),M0_list)
-        #     M0        = fint(Mz)
-        # self.M0       = M0
-        # self.redshift = redshift
-        redshift = self.redshift
-        M0 = self.M0
+
+        if M0_at_redshift:
+            Mz        = M0
+            M0_list   = np.logspace(0.,3.,1000)*Mz
+            fint      = interp1d(self.Mzi(M0_list,redshift),M0_list)
+            M0        = fint(Mz)
+        self.M0       = M0
+        self.redshift = redshift
+        
         zdist = np.arange(redshift+dz,zmax+dz,dz)
         if logmamax==None:
             logmamax = np.log10(0.1*M0/self.Msun)
@@ -933,14 +362,33 @@ class subhalo_properties(halo_model):
         survive   = np.zeros((len(zdist),N_herm,len(ma200)))
         m0_matrix = np.zeros((len(zdist),N_herm,len(ma200)))
 
+        def Mzvir(z):
+            Mz200 = self.Mzzi(M0,z,0.)
+            Mvir = self.Mvir_from_M200(Mz200,z)
+            return Mvir
+
+        def AMz(z):
+            log10a = (-0.0003*np.log10(Mzvir(z)/self.Msun)+0.02)*z \
+                         +(0.011*np.log10(Mzvir(z)/self.Msun)-0.354)
+            return 10.**log10a
+
+        def zetaMz(z):
+            return (0.00012*np.log10(Mzvir(z)/self.Msun)-0.0033)*z \
+                       +(-0.0011*np.log10(Mzvir(z)/self.Msun)+0.026)
+
+        def tdynz(z):
+            Oz_z = self.OmegaM*(1.+z)**3/self.g(z)
+            return 1.628/self.h*(self.Delc(Oz_z-1.)/178.0)**-0.5/(self.Hubble(z)/self.H0)*1.e9*self.yr
+
+        def msolve(m, z):
+            return AMz(z)*(m/tdynz(z))*(m/Mzvir(z))**zetaMz(z)/(self.Hubble(z)*(1+z))
+
         for iz in range(len(zdist)):
-            ma           = self.Mvir_from_M200_fit(ma200,zdist[iz])
+            ma           = self.Mvir_from_M200(ma200,zdist[iz])
             Oz           = self.OmegaM*(1.+zdist[iz])**3/self.g(zdist[iz])
-            # zcalc        = np.linspace(zdist[iz],redshift,100)
-            # sol          = odeint(self.msolve,ma,zcalc)
-            # m0           = sol[-1]
-            # m0           = self.subhalo_mass_stripped_odeint(ma,zdist[iz],redshift)
-            m0           = self.subhalo_mass_stripped(ma, zdist[iz], redshift, method=method, **kwargs)
+            zcalc        = np.linspace(zdist[iz],redshift,100)
+            sol          = odeint(msolve,ma,zcalc)
+            m0           = sol[-1]
             c200sub      = self.conc200(ma200,zdist[iz])
             rvirsub      = (3.*ma/(4.*np.pi*self.rhocrit0*self.g(zdist[iz]) \
                                *self.Delc(Oz-1)))**(1./3.)
@@ -996,9 +444,9 @@ class subhalo_properties(halo_model):
 class subhalo_observables(subhalo_properties):
     
     
-    def __init__(self, M0_per_Msun, redshift=0., dz=0.1, zmax=7.0, n_z_interp=64, N_ma=500, sigmalogc=0.128,
+    def __init__(self, M0_per_Msun, redshift=0., dz=0.1, zmax=7.0, N_ma=500, sigmalogc=0.128,
                  N_herm=5, logmamin=-6, logmamax=None, N_hermNa=200, Na_model=3,
-                 ct_th=0.77, profile_change=True, M0_at_redshift=False, method="odeint", **kwargs):
+                 ct_th=0.77, profile_change=True, M0_at_redshift=False):
         """
         This class computes various subhalo observables in a host halo. 
         
@@ -1014,7 +462,6 @@ class subhalo_observables(subhalo_properties):
         (Optional) redshift:       Redshift of interest. (default: 0)
         (Optional) dz:             Grid of redshift of halo accretion. (default 0.1)
         (Optional) zmax:           Maximum redshift to start the calculation of evolution from. (default: 7.)
-        (Optional) n_z_interp:     Number of grid in redshift for interpolation of the tidal stripping. (default: 64)
         (Optional) N_ma:           Number of logarithmic grid of subhalo mass at accretion defined as M_{200}).
                                    (default: 500)
         (Optional) sigmalogc:      rms scatter of concentration parameter defined for log_{10}(c).
@@ -1033,8 +480,6 @@ class subhalo_observables(subhalo_properties):
         (Optional) profile_change: Whether we implement the evolution of subhalo density profile through tidal
                                    mass loss. (default: True)
         (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
-        (Optional) method:          Method to calculate the subhalo mass stripping. (default: "odeint")
-        (Optional) kwargs:          Additional arguments for the odeint function.
 
         
         When called with these input parameters, this class initially creates a list of subhalos, characterized
@@ -1062,11 +507,11 @@ class subhalo_observables(subhalo_properties):
 
         """
 
-        subhalo_properties.__init__(self, M0_per_Msun, redshift, zmax, n_z_interp, M0_at_redshift)
+        subhalo_properties.__init__(self)
         ma200, z_a, rs_a, rhos_a, m0, rs0, rhos0, ct0, weight, survive \
-            = self.subhalo_properties_calc(dz,zmax,N_ma,sigmalogc,N_herm,
+            = self.subhalo_properties_calc(M0_per_Msun*self.Msun,redshift,dz,zmax,N_ma,sigmalogc,N_herm,
                                            logmamin,logmamax,N_hermNa,Na_model,ct_th,profile_change,
-                                           method,**kwargs)
+                                           M0_at_redshift)
         self.ma200  = ma200[survive]
         self.z_a    = z_a[survive]
         self.rs_a   = rs_a[survive]
