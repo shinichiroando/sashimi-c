@@ -235,7 +235,7 @@ class halo_model(cosmology):
 class TidalStrippingSolver(halo_model):
     """ Solve the tidal stripping equation for a given subhalo. """
     
-    def __init__(self, M0, redshift=0.0, zmax=7.0, n_z_interp=64, M0_at_redshift=False):
+    def __init__(self, M0, z_min=0.0, z_max=7.0, n_z_interp=64, M0_at_redshift=False):
         """ Initial function of the class. 
         
         -----
@@ -246,19 +246,19 @@ class TidalStrippingSolver(halo_model):
             via Mzi(M0,redshift). If you want to give this parameter as the mass at the given
             redshift, then turn 'M0_at_redshift' parameter on (see below).
 
-        (Optional) redshift:       Redshift of interest. (default: 0)
-        (Optional) zmax:           Maximum redshift to start the calculation of evolution from. (default: 7.)
-        (Optional) n_z_interp:     TODO
+        (Optional) z_min:          Minimum redshift to end the calculation of evolution to. (default: 0.)
+        (Optional) z_max:          Maximum redshift to start the calculation of evolution from. (default: 7.)
+        (Optional) n_z_interp:     Number of redshifts to calculate epsilon functions. (default: 64)
         (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
         """
         halo_model.__init__(self)
         if M0_at_redshift:
             Mz        = M0
             M0_list   = np.logspace(0.,3.,1000)*Mz
-            fint      = interp1d(self.Mzi(M0_list,redshift),M0_list)
+            fint      = interp1d(self.Mzi(M0_list,z_min),M0_list)
             M0        = fint(Mz)
-        self.redshift = redshift
-        self.zmax     = zmax
+        self.z_min = z_min
+        self.z_max     = z_max
         self.n_z_interp      = n_z_interp
         self.M0       = M0
 
@@ -272,12 +272,12 @@ class TidalStrippingSolver(halo_model):
     def M0(self, value):
         self._M0 = value
         self.reset_interpolation(
-            za_max=self.zmax, 
-            z_min=self.redshift,
+            z_max=self.z_max, 
+            z_min=self.z_min,
             n_z=self.n_z_interp)
 
     
-    def reset_interpolation(self, za_max, z_min, n_z):
+    def reset_interpolation(self, z_max, z_min, n_z):
         """ Reset interpolation for epsilon functions. 
         
         This function is called when the mass of the host
@@ -293,10 +293,10 @@ class TidalStrippingSolver(halo_model):
         n_z: int
             Number of redshifts to calculate epsilon functions.
         """
-        _z, _eps_0 = self._eps_0(za_max, z_min, n_z)
-        _, _eps_10, _eps_11 = self._eps_1(za_max, z_min, n_z)
-        _, _eps_20, _eps_21, _eps_22 = self._eps_2(za_max, z_min, n_z)
-        _, _eps_30, _eps_31, _eps_32, _eps_33 = self._eps_3(za_max, z_min, n_z)
+        _z, _eps_0 = self._eps_0(z_max, z_min, n_z)
+        _, _eps_10, _eps_11 = self._eps_1(z_max, z_min, n_z)
+        _, _eps_20, _eps_21, _eps_22 = self._eps_2(z_max, z_min, n_z)
+        _, _eps_30, _eps_31, _eps_32, _eps_33 = self._eps_3(z_max, z_min, n_z)
         # get the interpolation functions as indefinite integrals
         self._eps_0_interp = lambda z: np.interp(z, _z[::-1], _eps_0[::-1])
         self._eps_10_interp = lambda z: np.interp(z, _z[::-1], _eps_10[::-1])
@@ -772,8 +772,8 @@ class subhalo_properties(halo_model):
 
         solver = TidalStrippingSolver(
             M0 = M0,
-            redshift = redshift,
-            zmax = zmax,
+            z_min = redshift,
+            z_max = zmax,
             n_z_interp=64,
             M0_at_redshift=M0_at_redshift
         )
