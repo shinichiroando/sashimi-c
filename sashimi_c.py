@@ -3,12 +3,17 @@ from scipy import integrate
 from scipy import interpolate
 from scipy import optimize
 from scipy import special
+from scipy.integrate import simpson
 from scipy.integrate import odeint
 from scipy.integrate import cumulative_trapezoid
 from scipy.interpolate import interp1d
+from scipy.interpolate import griddata
+from scipy.special import erf
 from numpy.polynomial.hermite import hermgauss
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
+
+
 
 
 def memoize_with_pickle(cache_dir="cache"):
@@ -240,32 +245,22 @@ class halo_model(cosmology):
 class TidalStrippingSolver(halo_model):
     """ Solve the tidal stripping equation for a given subhalo. """
     
-    def __init__(self, M0, z_min=0.0, z_max=7.0, n_z_interp=64, M0_at_redshift=False):
+    def __init__(self, M0, z_min=0.0, z_max=7.0, n_z_interp=64):
         """ Initial function of the class. 
         
         -----
         Input
         -----
         M0: Mass of the host halo defined as M_{200} (200 times critial density) at *z = 0*.
-            Note that this is *not* the host mass at the given redshift! It can be obtained
-            via Mzi(M0,redshift). If you want to give this parameter as the mass at the given
-            redshift, then turn 'M0_at_redshift' parameter on (see below).
-
         (Optional) z_min:          Minimum redshift to end the calculation of evolution to. (default: 0.)
         (Optional) z_max:          Maximum redshift to start the calculation of evolution from. (default: 7.)
         (Optional) n_z_interp:     Number of redshifts to calculate epsilon functions. (default: 64)
-        (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
         """
         halo_model.__init__(self)
-        if M0_at_redshift:
-            Mz        = M0
-            M0_list   = np.logspace(0.,3.,1000)*Mz
-            fint      = interp1d(self.Mzi(M0_list,z_min),M0_list)
-            M0        = fint(Mz)
-        self.z_min = z_min
-        self.z_max     = z_max
-        self.n_z_interp      = n_z_interp
-        self.M0       = M0
+        self.z_min       = z_min
+        self.z_max       = z_max
+        self.n_z_interp  = n_z_interp
+        self.M0          = M0
 
 
     @property
@@ -739,13 +734,13 @@ class subhalo_properties(halo_model):
                                    mass loss. (default: True)
         (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
         (Optional) method:         Method to calculate the subhalo mass stripping. (default: "pert2_shanks")
-                                      - "odeint" : use odeint to solve the differential equation.
-                                      - "pert0" : use perturbative method with zeroth-order correction.
-                                      - "pert1" : use perturbative method with first-order correction.
-                                      - "pert2" : use perturbative method with second-order correction.
-                                      - "pert2_shanks" : use perturbative method with second-order correction 
-                                        and Shanks transformation.
-                                      - "pert3" : use perturbative method with third-order correction.
+                                   - "odeint" : use odeint to solve the differential equation.
+                                   - "pert0" : use perturbative method with zeroth-order correction.
+                                   - "pert1" : use perturbative method with first-order correction.
+                                   - "pert2" : use perturbative method with second-order correction.
+                                   - "pert2_shanks" : use perturbative method with second-order correction 
+                                     and Shanks transformation.
+                                   - "pert3" : use perturbative method with third-order correction.
         (Optional) kwargs:         Additional arguments for the odeint function.
         
         ------
@@ -789,8 +784,7 @@ class subhalo_properties(halo_model):
             M0 = M0,
             z_min = redshift,
             z_max = zmax,
-            n_z_interp=64,
-            M0_at_redshift=M0_at_redshift
+            n_z_interp=64
         )
 
         for iz in range(len(zdist)):
@@ -846,8 +840,8 @@ class subhalo_properties(halo_model):
 
         return ma200, z_acc, rs_acc, rhos_acc, m_z0, rs_z0, rhos_z0, ct_z0, weight, survive
 
-    
-    
+
+
 
 class subhalo_observables(subhalo_properties):
     
@@ -889,13 +883,13 @@ class subhalo_observables(subhalo_properties):
                                    mass loss. (default: True)
         (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
         (Optional) method:         Method to calculate the subhalo mass stripping. (default: "pert2_shanks")
-                                      - "odeint" : use odeint to solve the differential equation.
-                                      - "pert0" : use perturbative method with zeroth-order correction.
-                                      - "pert1" : use perturbative method with first-order correction.
-                                      - "pert2" : use perturbative method with second-order correction.
-                                      - "pert2_shanks" : use perturbative method with second-order correction 
-                                        and Shanks transformation.
-                                      - "pert3" : use perturbative method with third-order correction.
+                                   - "odeint" : use odeint to solve the differential equation.
+                                   - "pert0" : use perturbative method with zeroth-order correction.
+                                   - "pert1" : use perturbative method with first-order correction.
+                                   - "pert2" : use perturbative method with second-order correction.
+                                   - "pert2_shanks" : use perturbative method with second-order correction 
+                                     and Shanks transformation.
+                                   - "pert3" : use perturbative method with third-order correction.
         (Optional) kwargs:         Additional arguments for the odeint function.
 
 
@@ -1087,7 +1081,7 @@ class subhalo_observables(subhalo_properties):
         return fsh
 
 
-    def annihilation_boost_factor(self, evolved=True):
+    def annihilation_boost_factor(self, n=0, evolved=True):
         """
         Annihilation boost factor B_{sh}. Note that the effect of sub-subhalos and higher order
         structure is not included.
@@ -1095,9 +1089,17 @@ class subhalo_observables(subhalo_properties):
         -----
         Input
         -----
+        (Optional) n:       The effects up to sub^{n}-subhalos will be included. 
+                            If n=0 (default), no sub-subhalos and beyond is considered.
+                            For other values of n, the function requires pre-computed boost factors
+                            B_sh from the previous (n-1)th iteration and subhalo mass fraction f_sh.
+                            These are stored under 'data/boost/' directory. If the directory cannot
+                            be found, excecuting 'boost_iteraction.py' will generate the necessary
+                            files and store them in the directory, up to n = 3.
         (Optional) evolved: If True (False), this function calculates evolved (unevolved) mass function.
                             Here 'evolved' means that subhalos experiences tidal mass loss, whereas
                             'unevolved' means that mass loss is ignored.
+                            If True, n must be set to 0.
                             
         ------
         Output
@@ -1111,12 +1113,48 @@ class subhalo_observables(subhalo_properties):
         """
         
         fsh = self.mass_fraction(evolved)
+        if n==0:
+            fssh = 0.
+            Bssh = 0.
+        else:                        
+            list_Bssh = np.loadtxt('data/boost/Bsh_%s.txt'%(n-1))
+            list_fssh = np.loadtxt('data/boost/fsh.txt')
+            list_za  = np.loadtxt('data/boost/za.txt')
+            list_ma  = np.loadtxt('data/boost/ma.txt')
+
+            list_log_ma_flat   = np.log10(list_ma.flatten())
+            list_za_flat       = (list_za.reshape(-1,1)*np.ones_like(list_ma[0])).flatten()
+            list_log_fssh_flat = np.log10(list_fssh.flatten())
+            list_log_Bssh_flat = np.log10((list_Bssh+1.e-30).flatten())
+
+            log_Bssh = griddata((list_log_ma_flat,list_za_flat),list_log_Bssh_flat,(np.log10(self.ma200),self.z_a),method='linear')
+            log_fssh = griddata((list_log_ma_flat,list_za_flat),list_log_fssh_flat,(np.log10(self.ma200),self.z_a),method='linear')
+            log_Bssh[~np.isfinite(log_Bssh)] = -np.inf
+            log_fssh[~np.isfinite(log_fssh)] = -np.inf
+            Bssh = 10.**log_Bssh
+            fssh = 10.**log_fssh
+                        
+            mavir = self.Mvir_from_M200_fit(self.ma200,self.z_a)
+            Oz    = self.OmegaM*(1.+self.z_a)**3/self.g(self.z_a)
+            ravir = np.cbrt(3.*mavir/(4.*np.pi*self.rhocrit(self.z_a)*self.Delc(Oz-1.)))
+            cavir = ravir/self.rs_a
+
+            Bssh = Bssh*self.rs0**3*(np.arcsinh(self.ct0)-self.ct0/np.sqrt(1.+self.ct0**2))
+            Bssh = Bssh/(self.rs_a**3*(np.arcsinh(cavir)-cavir/np.sqrt(1.+cavir**2)))
+            Bssh = Bssh/(self.rhos0**2*self.rs0**3*(1.-1./(1.+self.ct0)**3))
+            Bssh = Bssh*(self.rhos_a**2*self.rs_a**3*(1.-1./(1.+cavir)**3))
+            fssh = fssh*self.rs0**3*(np.arcsinh(self.ct0)-self.ct0/np.sqrt(1.+self.ct0**2))
+            fssh = fssh/(self.rs_a**3*(np.arcsinh(cavir)-cavir/np.sqrt(1.+cavir**2)))
+            fssh = fssh/(self.rhos0*self.rs0**3*self.fc(self.ct0))
+            fssh = fssh*(self.rhos_a*self.rs_a**3*self.fc(cavir))
+
         if evolved:
-            Lsh = np.sum(self.rhos0**2*self.rs0**3*(1.-1./(1.+self.ct0)**3)*self.weight)
+            Lsh  = np.sum((1.-fssh**2+Bssh)*self.rhos0**2*self.rs0**3*(1.-1./(1.+self.ct0)**3)*self.weight)
         else:
             r200 = (3.*self.ma200/(4.*np.pi*self.rhocrit(self.redshift)*200.))**(1./3.)
             c200 = r200/self.rs_a
             Lsh  = np.sum(self.rhos_a**2*self.rs_a**3*(1.-1./(1.+c200)**3)*self.weight)
+            
         Mhost     = self.Mzi(self.M0,self.redshift)
         r200_host = (3.*Mhost/(4.*np.pi*self.rhocrit(self.redshift)*200.))**(1./3.)
         c200_host = self.conc200(Mhost,self.redshift)

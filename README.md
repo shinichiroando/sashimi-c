@@ -13,7 +13,7 @@ The codes allow to calculate various subhalo properties efficiently using semi-a
 
 Special thanks to Tomoaki Ishiyama, who provided data of cosmological N-body simulations that were used for calibration of model output.
 
-Please send enquiries to Shin'ichiro Ando (s.ando@uva.nl). We have checked that the codes work with python 3.9 but cannot guarantee for other versions of python. In any case, we cannot help with any technical issues not directly related to the content of SASHIMI (such as installation, sub-packages required, etc.)
+Please send enquiries to Shin'ichiro Ando (s.ando@uva.nl). We have checked that the codes work with python 3.10 but cannot guarantee for other versions of python. In any case, we cannot help with any technical issues not directly related to the content of SASHIMI (such as installation, sub-packages required, etc.)
 
 ## What can we do with SASHIMI?
 
@@ -95,13 +95,13 @@ M0: Mass of the host halo defined as M_{200} (200 times critial density) at *z =
                            mass loss. (default: True)
 (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
 (Optional) method:         Method to calculate the subhalo mass stripping. (default: "pert2_shanks")
-                                - "odeint" : use odeint to solve the differential equation.
-                                - "pert0" : use perturbative method with zeroth-order correction.
-                                - "pert1" : use perturbative method with first-order correction.
-                                - "pert2" : use perturbative method with second-order correction.
-                                - "pert2_shanks" : use perturbative method with second-order correction 
-                                and Shanks transformation.
-                                - "pert3" : use perturbative method with third-order correction.
+                           - "odeint" : use odeint to solve the differential equation.
+                           - "pert0" : use perturbative method with zeroth-order correction.
+                           - "pert1" : use perturbative method with first-order correction.
+                           - "pert2" : use perturbative method with second-order correction.
+                           - "pert2_shanks" : use perturbative method with second-order correction 
+                             and Shanks transformation.
+                           - "pert3" : use perturbative method with third-order correction.
 (Optional) kwargs:         Additional arguments for the odeint function.
         
 ------
