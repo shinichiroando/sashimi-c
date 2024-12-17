@@ -1093,13 +1093,12 @@ class subhalo_observables(subhalo_properties):
                             If n=0 (default), no sub-subhalos and beyond is considered.
                             For other values of n, the function requires pre-computed boost factors
                             B_sh from the previous (n-1)th iteration and subhalo mass fraction f_sh.
-                            These are stored under 'data/boost/' directory. If the directory cannot
-                            be found, excecuting 'boost_iteraction.py' will generate the necessary
-                            files and store them in the directory, up to n = 3.
+                            These are stored under 'data/boost/' directory. If the directory does not
+                            exist, excecuting 'boost_iteraction.py' will generate the  necessary files
+                            and store them in the directory, up to n = 3.
         (Optional) evolved: If True (False), this function calculates evolved (unevolved) mass function.
                             Here 'evolved' means that subhalos experiences tidal mass loss, whereas
                             'unevolved' means that mass loss is ignored.
-                            If True, n must be set to 0.
                             
         ------
         Output
