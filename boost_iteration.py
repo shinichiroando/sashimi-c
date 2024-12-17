@@ -2,7 +2,7 @@ from sashimi_c import *
 import os
 import tqdm
 
-n_values = [1,2,3]
+n_values = [0,1,2,3]
 
 if not os.path.exists('data/boost'):
     os.makedirs('data/boost',exist_ok=True)
