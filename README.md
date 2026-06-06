@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="SASHIMI-C logo" width="440">
+</p>
+
 # Semi-Analytical SubHalo Inference ModelIng for CDM (SASHIMI-C)
 [![arXiv](https://img.shields.io/badge/arXiv-1803.07691%20-green.svg)](https://arxiv.org/abs/1803.07961)
 [![arXiv](https://img.shields.io/badge/arXiv-1903.11427%20-green.svg)](https://arxiv.org/abs/1903.11427)
