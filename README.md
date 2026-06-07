@@ -36,6 +36,30 @@ Please send enquiries to Shin'ichiro Ando (s.ando@uva.nl). We have checked that 
 - Application to various primordial power spectra.
 - Including baryonic effects.
 
+## Prompt cusps (dark matter annihilation)
+
+The smallest dark matter halos form *prompt cusps* with steep central density profiles that dominate the annihilation signal. This is relevant **only when discussing annihilation**, so all prompt-cusp code lives in a separate module, `prompt_cusps.py`, which is imported lazily and is never loaded for standard (non-annihilation) runs. To switch it on, pass `prompt_cusps=True` when constructing a class:
+
+```python
+from sashimi_c import *
+
+sh = subhalo_observables(1.e12, prompt_cusps=True)   # M0/Msun; turns the prompt-cusp path on
+Bsh, Bcusp_dressed, Bcusp_naked, luminosity_ratio, Ncusp_dressed, Ncusp_naked \
+    = sh.annihilation_boost_factor_prompt_cusps(n=0)
+```
+
+With `prompt_cusps=True`, sigma(M) is computed from the CAMB linear matter power spectrum (with a free-streaming cutoff set by `k_fs_Mpc` / `filter` / `alpha`) instead of the Ludlow fit. The higher-order (`n>0`) boost tables are pre-computed with `boost_iteration_prompt_cusps.py`. See Ando et al. (arXiv:2601.19863).
+
+## Versions
+
+| Version | Description |
+|---------|-------------|
+| v1.0 | First public release. |
+| v1.1 | Improved computational efficiency (perturbative evaluation of tidal stripping). |
+| v1.2 | Prompt cusps for the annihilation signal (opt-in via `prompt_cusps=True`, isolated in `prompt_cusps.py`), plus general fixes. |
+
+**Note (v1.2):** the default of `ct_th` (tidal-disruption threshold) changed from `0.77` to `0.0` (no disruption). This affects results for *all* users, not only prompt-cusp runs; pass `ct_th=0.77` to recover the previous behavior. v1.2 also includes a fix to `dDdz` and other minor corrections.
+
 ## References
 
 When you use the outcome of this package for your scientific output, please cite the following publications.
@@ -49,6 +73,7 @@ The SASHIMI codes depend on results from various earlier papers. Listed below ar
 - (Evolution of host halo mass) https://arxiv.org/abs/1409.5228
 - (Extended Press-Schechter model) https://arxiv.org/abs/1104.1757
 - (Power spectrum and rms mass density) https://arxiv.org/abs/1601.02624
+- (Prompt cusps and dark matter annihilation) https://arxiv.org/abs/2601.19863
 
 ## Examples
 
@@ -94,7 +119,8 @@ M0: Mass of the host halo defined as M_{200} (200 times critial density) at *z =
                            used in Na_calc. (default: 200)
 (Optional) Na_model:       Model number of EPS defined in Yang et al. (2011). (default: 3)
 (Optional) ct_th:          Threshold value for c_t(=r_t/r_s) parameter, below which a subhalo is assumed to
-                           be completely desrupted. Suggested values: 0.77 (default) or 0 (no desruption).
+                           be completely desrupted. Suggested values: 0.77 (disruption) or 0.0
+                           (no desruption; default since v1.2).
 (Optional) profile_change: Whether we implement the evolution of subhalo density profile through tidal
                            mass loss. (default: True)
 (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
