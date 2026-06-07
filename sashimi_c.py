@@ -10,6 +10,7 @@ from scipy.interpolate import interp1d
 from scipy.interpolate import griddata
 from scipy.special import erf
 from numpy.polynomial.hermite import hermgauss
+import os
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 
@@ -106,7 +107,7 @@ class cosmology(units_and_constants):
     def dDdz(self, z):
         def dOdz(z):
             return -self.OmegaL*3*self.OmegaM*(1+z)**2*(self.OmegaL+self.OmegaM*(1+z)**3.)**-2
-        Omega_Lz = self.OmegaL*pow(self.OmegaL+self.OmegaM*pow(self.h,-2)*pow(1+z,3),-1)
+        Omega_Lz = self.OmegaL/(self.OmegaL+self.OmegaM*(1.+z)**3)
         Omega_Mz = 1-Omega_Lz
         phiz     = Omega_Mz**(4./7.)-Omega_Lz+(1+Omega_Mz/2.)*(1+Omega_Lz/70.)
         phi0     = self.OmegaM**(4./7.)-self.OmegaL+(1+self.OmegaM/2.)*(1+self.OmegaL/70.)
@@ -119,18 +120,51 @@ class cosmology(units_and_constants):
 class halo_model(cosmology):
 
     
-    def __init__(self):
+    def __init__(self, prompt_cusps=False, k_fs_Mpc=1.06e6, filter='Sharp-k', alpha=1.8):
         cosmology.__init__(self)
-
+        self.prompt_cusps  = prompt_cusps
+        self.k_fs          = k_fs_Mpc*self.Mpc**-1
+        self.filter        = filter
+        self.alpha         = alpha
         
-    def xi(self, M):
-        return (M/((1.e10*self.Msun)/self.h))**-1
+        if prompt_cusps:
+            # Prompt-cusp path: build sigma(M) / dsigma^2/dM from the CAMB power
+            # spectrum. Imported lazily so standard (non-cusp) usage never loads
+            # the prompt_cusps module.
+            from prompt_cusps import build_ps_interpolators
+            self.sigma_interp, self.dsdm_interp = build_ps_interpolators(
+                self, self.k_fs, filter=filter, alpha=alpha)
 
+
+    def sigmaMz(self, M, z):
+        if self.prompt_cusps==False:
+            return self.sigma_Ludlow(M)*self.growthD(z)
+        else:
+            return self.sigma_interp(np.log10(M/self.Msun))*self.growthD(z)
+
+
+    def dsdm(self, M, z):
+        if self.prompt_cusps==False:
+            return self.dsdm_Ludlow(M)*self.growthD(z)**2
+        else:
+            return self.dsdm_interp(np.log10(M/self.Msun))*self.growthD(z)**2
     
-    def sigmaMz(self, M, z):    
+    
+    def sigma_Ludlow(self, M):
         """ Ludlow et al. (2016) """
-        return self.growthD(z)*22.26*self.xi(M)**0.292/(1.+1.53*self.xi(M)**0.275+3.36*self.xi(M)**0.198)
+        xi = lambda M: (M/((1.e10*self.Msun)/self.h))**-1
+        return 22.26*xi(M)**0.292/(1.+1.53*xi(M)**0.275+3.36*xi(M)**0.198)
 
+
+    def dsdm_Ludlow(self, M):
+        """ Ludlow et al. (2016) """
+        xi = lambda M: (M/((1.e10*self.Msun)/self.h))**-1
+        dsdsigma  = 2.*self.sigma_Ludlow(M)
+        dxidm     = -1.e10*self.Msun/self.h/M**2
+        dsigmadxi = self.sigma_Ludlow(M)*(0.292/xi(M)-(0.275*1.53*xi(M)**-0.725+0.198*3.36* \
+            xi(M)**-0.802)/(1.+1.53*xi(M)**0.275+3.36*xi(M)**0.198))
+        return dsdsigma*dsigmadxi*dxidm
+        
 
     def deltac_func(self, z):
         return 1.686/self.growthD(z)
@@ -218,28 +252,8 @@ class halo_model(cosmology):
         Mzzidef = Mzi0*(1.+z-zi)**alpha*np.exp(beta*(z-zi))
         Mzzivir = self.Mvir_from_M200_fit(Mzzidef,z)
         return (beta+alpha/(1.+z-zi))*Mzzivir
-
+        
     
-    def dsdm(self,M,z):  
-        """ Ludlow et al. (2016) """
-        s         = self.sigmaMz(M,z)**2
-        dsdsigma  = 2.*self.sigmaMz(M,z)
-        dxidm     = -1.e10*self.Msun/self.h/M**2
-        dsigmadxi = self.sigmaMz(M,z)*(0.292/self.xi(M)-(0.275*1.53*self.xi(M)**-0.725+0.198*3.36* \
-            self.xi(M)**-0.802)/(1.+1.53*self.xi(M)**0.275+3.36*self.xi(M)**0.198))
-        return dsdsigma*dsigmadxi*dxidm
-
-    
-    def dlogSdlogM(self,M,z):  
-        """ Ludlow et al. (2016) """
-        s         = self.sigmaMz(M,z)**2
-        dsdsigma  = 2.*self.sigmaMz(M,z)
-        dxidm     = -1.e10*self.Msun/self.h/M**2
-        dsigmadxi = self.sigmaMz(M,z)*(0.292*pow(self.xi(M),-1)-(0.275*1.53*pow(self.xi(M),-0.725)+0.198*3.36* \
-            pow(self.xi(M),-0.802))*pow(1.+1.53*pow(self.xi(M),0.275)+3.36*pow(self.xi(M),0.198),-1))
-        return (M/s)*dsdsigma*dsigmadxi*dxidm
-
-
 
 
 class TidalStrippingSolver(halo_model):
@@ -523,12 +537,12 @@ class TidalStrippingSolver(halo_model):
         eps_22 = self.eps_22(za, z)
         ln_ma = np.log(ma)
         # NOTE: Shanks transformation
-        # For A_n = \sum_{i=0}^{n} a_i, the Shanks transformation is given by
+        # For A_n = sum_{i=0}^{n} a_i, the Shanks transformation is given by
         #  S_n = A_{n+1} - (A_{n+1} - A_n)^2 / (A_{n+1} - 2A_n + A_{n-1})
         #      = A_{n+1} - (A_{n+1} - A_n)^2 / ((A_{n+1} - A_n) - (A_n - A_{n-1}))
-        # Since A_n = \sum_{i=0}^{n} a_i, we can write
+        # Since A_n = sum_{i=0}^{n} a_i, we can write
         #  S_n = A_{n+1} - a_{n+1}^2 / (a_{n+1} - a_n)
-        # In our case, we calculate the epsilon as eps = \sum_{i=0}^{n} eps_i.
+        # In our case, we calculate the epsilon as eps = sum_{i=0}^{n} eps_i.
         # Therefore, we can apply Shanks transformation to eps up to the second order as follows:
         # S_2 = (eps_0 + eps_1 + eps_2) - eps_2^2 / (eps_2 - eps_1)
         eps_1 = eps_10 + ln_ma * eps_11
@@ -615,9 +629,8 @@ class TidalStrippingSolver(halo_model):
     
 class subhalo_properties(halo_model):
 
-    
-    def __init__(self):
-        halo_model.__init__(self)
+    def __init__(self, prompt_cusps=False, k_fs_Mpc=1.06e6, filter='Sharp-k', alpha=1.8):
+        halo_model.__init__(self, prompt_cusps=prompt_cusps, k_fs_Mpc=k_fs_Mpc, filter=filter, alpha=alpha)
 
     
     def Ffunc(self, dela, s1, s2):
@@ -700,7 +713,7 @@ class subhalo_properties(halo_model):
     
     def subhalo_properties_calc(self, M0, redshift=0.0, dz=0.01, zmax=7.0, N_ma=500, sigmalogc=0.128,
                                 N_herm=5, logmamin=-6, logmamax=None, N_hermNa=200, Na_model=3, 
-                                ct_th=0.77, profile_change=True, M0_at_redshift=False, method="pert2_shanks", **kwargs):
+                                ct_th=0.0, profile_change=True, M0_at_redshift=False, method="pert2_shanks", **kwargs):
         """
         This is the main function of SASHIMI-C, which makes a semi-analytical subhalo catalog.
         
@@ -729,7 +742,8 @@ class subhalo_properties(halo_model):
                                    used in Na_calc. (default: 200)
         (Optional) Na_model:       Model number of EPS defined in Yang et al. (2011). (default: 3)
         (Optional) ct_th:          Threshold value for c_t(=r_t/r_s) parameter, below which a subhalo is assumed to
-                                   be completely desrupted. Suggested values: 0.77 (default) or 0 (no desruption).
+                                   be completely desrupted. Suggested values: 0.77 (desruption)
+                                   or 0.0 (no desruption; default).
         (Optional) profile_change: Whether we implement the evolution of subhalo density profile through tidal
                                    mass loss. (default: True)
         (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
@@ -762,9 +776,10 @@ class subhalo_properties(halo_model):
 
         if M0_at_redshift:
             Mz        = M0
-            M0_list   = np.logspace(0.,3.,1000)*Mz
-            fint      = interp1d(self.Mzi(M0_list,redshift),M0_list)
-            M0        = fint(Mz)
+            M0_list   = np.logspace(0.,5.,1500)*Mz
+            fint      = interp1d(self.Mzi(M0_list,redshift),M0_list,
+                                 bounds_error=False, fill_value="extrapolate")
+            M0        = float(fint(Mz))
         self.M0       = M0
         self.redshift = redshift
         
@@ -819,12 +834,12 @@ class subhalo_properties(halo_model):
             survive[iz]   = np.where(ct_z0[iz]>ct_th,1,0)
             m0_matrix[iz] = m0*np.ones((N_herm,1))
 
-        Na           = self.Na_calc(ma,zdist,M0,z0=0.,N_herm=N_hermNa,Nrand=1000,
+        Na           = self.Na_calc(ma200,zdist,M0,z0=0.,N_herm=N_hermNa,Nrand=1000,
                                     Na_model=Na_model)
-        Na_total     = integrate.simpson(integrate.simpson(Na,x=np.log(ma)),x=np.log(1+zdist))
+        Na_total     = integrate.simpson(integrate.simpson(Na,x=np.log(ma200)),x=np.log(1+zdist))
         weight       = Na/(1.+zdist.reshape(-1,1))
         weight       = weight/np.sum(weight)*Na_total
-        weight       = (weight.reshape((len(zdist),1,len(ma))))*w1/np.sqrt(np.pi)
+        weight       = (weight.reshape((len(zdist),1,len(ma200))))*w1/np.sqrt(np.pi)
         z_acc        = (zdist.reshape(-1,1,1))*np.ones((1,N_herm,N_ma))
         z_acc        = z_acc.reshape(-1)
         ma200        = ma200*np.ones((len(zdist),N_herm,1))
@@ -847,8 +862,9 @@ class subhalo_observables(subhalo_properties):
     
     
     def __init__(self, M0_per_Msun, redshift=0., dz=0.01, zmax=7.0, N_ma=500, sigmalogc=0.128,
-                 N_herm=5, logmamin=-6, logmamax=None, N_hermNa=200, Na_model=3,
-                 ct_th=0.77, profile_change=True, M0_at_redshift=False,method="pert2_shanks", **kwargs):
+                 N_herm=5, logmamin=-6, logmamax=None, N_hermNa=200, Na_model=3, ct_th=0.0,
+                 profile_change=True, M0_at_redshift=False, prompt_cusps=False, k_fs_Mpc=1.06e6,
+                 filter='Sharp-k', alpha=1.8, method="pert2_shanks", **kwargs):
         """
         This class computes various subhalo observables in a host halo. 
         
@@ -878,7 +894,8 @@ class subhalo_observables(subhalo_properties):
                                    used in Na_calc. (default: 200)
         (Optional) Na_model:       Model number of EPS defined in Yang et al. (2011). (default: 3)
         (Optional) ct_th:          Threshold value for c_t(=r_t/r_s) parameter, below which a subhalo is assumed to
-                                   be completely disrupted. Suggested values: 0.77 (default) or 0 (no disruption).
+                                   be completely disrupted. Suggested values: 0.77 (disruption) or 0.0
+                                   (no disruption; default).
         (Optional) profile_change: Whether we implement the evolution of subhalo density profile through tidal
                                    mass loss. (default: True)
         (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
@@ -919,7 +936,7 @@ class subhalo_observables(subhalo_properties):
 
         """
 
-        subhalo_properties.__init__(self)
+        subhalo_properties.__init__(self,prompt_cusps=prompt_cusps,k_fs_Mpc=k_fs_Mpc,filter=filter,alpha=alpha)
         ma200, z_a, rs_a, rhos_a, m0, rs0, rhos0, ct0, weight, survive \
             = self.subhalo_properties_calc(M0_per_Msun*self.Msun,redshift,dz,zmax,N_ma,sigmalogc,N_herm,
                                            logmamin,logmamax,N_hermNa,Na_model,ct_th,profile_change,
@@ -937,6 +954,8 @@ class subhalo_observables(subhalo_properties):
         self.Vmax   = np.sqrt(4.*np.pi*self.G*self.rhos0/4.625)*self.rs0
         self.rpeak  = 2.163*self.rs_a
         self.Vpeak  = np.sqrt(4.*np.pi*self.G*self.rhos_a/4.625)*self.rs_a
+        
+        self.redshift = redshift
 
 
     def mass_function(self, evolved=True):
@@ -1056,7 +1075,7 @@ class subhalo_observables(subhalo_properties):
 
     def mass_fraction(self, evolved=True):
         """
-        Subhalo mass fraction: \sum_i m_i / M_host
+        Subhalo mass fraction: sum_i m_i / M_host
         
         -----
         Input
@@ -1115,7 +1134,7 @@ class subhalo_observables(subhalo_properties):
         if n==0:
             fssh = 0.
             Bssh = 0.
-        else:                        
+        else:     
             list_Bssh = np.loadtxt('data/boost/Bsh_%s.txt'%(n-1))
             list_fssh = np.loadtxt('data/boost/fsh.txt')
             list_za  = np.loadtxt('data/boost/za.txt')
@@ -1165,6 +1184,117 @@ class subhalo_observables(subhalo_properties):
         luminosity_ratio = 1.-fsh**2+Bsh
         
         return Bsh, luminosity_ratio
+
+
+    def annihilation_boost_factor_prompt_cusps(self, n=0, f_surv=1., f_surv_stripped=1.):
+        """
+        Annihilation boost factor B_{sh}. Note that the effect of sub-subhalos and higher order
+        structure is not included.
+        
+        -----
+        Input
+        -----
+        (Optional) n:       The effects up to sub^{n}-subhalos will be included. 
+                            If n=0 (default), no sub-subhalos and beyond is considered.
+                            For other values of n, the function requires pre-computed boost factors
+                            B_sh from the previous (n-1)th iteration and subhalo mass fraction f_sh.
+                            These are stored under 'data/boost/' directory. If the directory does not
+                            exist, excecuting 'boost_iteraction.py' will generate the  necessary files
+                            and store them in the directory, up to n = 3.
+        (Optional) evolved: If True (False), this function calculates evolved (unevolved) mass function.
+                            Here 'evolved' means that subhalos experiences tidal mass loss, whereas
+                            'unevolved' means that mass loss is ignored.
+                            
+        ------
+        Output
+        ------
+        Bsh:              Annihilation boost factor B_{sh}. See Eq. (37) of Ando et al.
+                          arXiv:1903.11427 for definition.
+        luminosity_ratio: Ratio of the total luminosity (subhalos+host) and the luminosity due
+                          to host only in the absence of subhalos:
+                          L_{total}/L_{host,0} = 1-f_{sh}^2+B_{sh}
+        
+        """
+
+        from prompt_cusps import prompt_cusps as _prompt_cusps
+        prc    = _prompt_cusps(k_fs=self.k_fs)
+        f_coll, J_cusps = prc.cusp_properties(f_surv=1.0,z=self.redshift)
+        J_cusps_mean    = np.mean(J_cusps)
+        
+        fsh = self.mass_fraction()
+        if n==0:
+            fssh          = 0.
+            Bssh          = 0.
+            Ncusp_dressed = 0.
+            Ncusp_naked   = 0.
+        else:                        
+            list_Bssh           = np.loadtxt('data/prompt_cusps/boost/Bsh_%s_%.1f_%.1f.txt'%((n-1),f_surv,f_surv_stripped))
+            list_Ncusp_dressed  = np.loadtxt('data/prompt_cusps/boost/Ncusp_dressed_%s_%.1f_%.1f.txt'%((n-1),f_surv,f_surv_stripped))
+            list_Ncusp_naked    = np.loadtxt('data/prompt_cusps/boost/Ncusp_naked_%s_%.1f_%.1f.txt'%((n-1),f_surv,f_surv_stripped))
+            list_fssh           = np.loadtxt('data/prompt_cusps/boost/fsh.txt')
+            list_za             = np.loadtxt('data/prompt_cusps/boost/za.txt')
+            list_ma             = np.loadtxt('data/prompt_cusps/boost/ma.txt')
+
+            list_log_ma_flat             = np.log10(list_ma.flatten())
+            list_za_flat                 = (list_za.reshape(-1,1)*np.ones_like(list_ma[0])).flatten()
+            list_log_fssh_flat           = np.log10(list_fssh.flatten())
+            list_log_Bssh_flat           = np.log10((list_Bssh+1.e-30).flatten())
+            list_log_Ncusp_dressed_flat  = np.log10((list_Ncusp_dressed).flatten())
+            list_log_Ncusp_naked_flat    = np.log10((list_Ncusp_naked).flatten())
+
+            log_Bssh           = griddata((list_log_ma_flat,list_za_flat),list_log_Bssh_flat,(np.log10(self.ma200),self.z_a),method='linear')
+            log_Ncusp_dressed  = griddata((list_log_ma_flat,list_za_flat),list_log_Ncusp_dressed_flat,(np.log10(self.ma200),self.z_a),method='linear')
+            log_Ncusp_naked    = griddata((list_log_ma_flat,list_za_flat),list_log_Ncusp_naked_flat,(np.log10(self.ma200),self.z_a),method='linear')
+            log_fssh           = griddata((list_log_ma_flat,list_za_flat),list_log_fssh_flat,(np.log10(self.ma200),self.z_a),method='linear')
+
+            log_Bssh[~np.isfinite(log_Bssh)]                    = -np.inf
+            log_Ncusp_dressed[~np.isfinite(log_Ncusp_dressed)]  = -np.inf
+            log_Ncusp_naked[~np.isfinite(log_Ncusp_naked)]      = -np.inf
+            log_fssh[~np.isfinite(log_fssh)]                    = -np.inf
+            Bssh            = 10.**log_Bssh
+            Ncusp_dressed0  = 10.**log_Ncusp_dressed
+            Ncusp_naked0    = 10.**log_Ncusp_naked
+            fssh            = 10.**log_fssh
+
+            mavir = self.Mvir_from_M200_fit(self.ma200,self.z_a)
+            Oz    = self.OmegaM*(1.+self.z_a)**3/self.g(self.z_a)
+            ravir = np.cbrt(3.*mavir/(4.*np.pi*self.rhocrit(self.z_a)*self.Delc(Oz-1.)))
+            cavir = ravir/self.rs_a
+
+            fssh = fssh*self.rs0**3*(np.arcsinh(self.ct0)-self.ct0/np.sqrt(1.+self.ct0**2))
+            fssh = fssh/(self.rs_a**3*(np.arcsinh(cavir)-cavir/np.sqrt(1.+cavir**2)))
+            fssh = fssh/(self.rhos0*self.rs0**3*self.fc(self.ct0))
+            fssh = fssh*(self.rhos_a*self.rs_a**3*self.fc(cavir))
+
+            Bssh = Bssh*self.rs0**3*(np.arcsinh(self.ct0)-self.ct0/np.sqrt(1.+self.ct0**2))
+            Bssh = Bssh/(self.rs_a**3*(np.arcsinh(cavir)-cavir/np.sqrt(1.+cavir**2)))
+            Bssh = Bssh/(self.rhos0**2*self.rs0**3*(1.-1./(1.+self.ct0)**3))
+            Bssh = Bssh*(self.rhos_a**2*self.rs_a**3*(1.-1./(1.+cavir)**3))
+            
+            Ncusp_dressed  = Ncusp_dressed0*self.rs0**3*(np.arcsinh(self.ct0)-self.ct0/np.sqrt(1.+self.ct0**2)) \
+                /(self.rs_a**3*(np.arcsinh(cavir)-cavir/np.sqrt(1.+cavir**2)))
+            Ncusp_naked    = Ncusp_naked0+f_surv_stripped*(Ncusp_dressed0-Ncusp_dressed)
+
+        Ncusp_dressed  = f_surv*np.sum(self.weight)+np.sum(Ncusp_dressed*self.weight)
+        Ncusp_naked    = np.sum(Ncusp_naked*self.weight)
+
+        Lsh       = np.sum((1.-fssh**2+Bssh)*4.*np.pi/3.*self.rhos0**2*self.rs0**3*(1.-1./(1.+self.ct0)**3)*self.weight)
+        Lcusp_dressed  = J_cusps_mean*Ncusp_dressed
+        Lcusp_naked    = J_cusps_mean*Ncusp_naked
+            
+        Mhost     = self.Mzi(self.M0,self.redshift)
+        r200_host = (3.*Mhost/(4.*np.pi*self.rhocrit(self.redshift)*200.))**(1./3.)
+        c200_host = self.conc200(Mhost,self.redshift)
+        rs_host   = r200_host/c200_host
+        rhos_host = Mhost/(4.*np.pi*rs_host**3*self.fc(c200_host))
+        Lhost0    = 4.*np.pi/3.*rhos_host**2*rs_host**3*(1.-1./(1.+c200_host)**3)
+
+        Bsh               = Lsh/Lhost0
+        Bcusp_dressed     = Lcusp_dressed/Lhost0
+        Bcusp_naked       = Lcusp_naked/Lhost0
+        luminosity_ratio  = 1.-fsh**2+Bsh+Bcusp_dressed+Bcusp_naked
+        
+        return Bsh, Bcusp_dressed, Bcusp_naked, luminosity_ratio, Ncusp_dressed, Ncusp_naked
 
     
     def subhalo_catalog_MC(self, mth):
