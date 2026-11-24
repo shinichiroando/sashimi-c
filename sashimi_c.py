@@ -120,12 +120,15 @@ class cosmology(units_and_constants):
 class halo_model(cosmology):
 
     
-    def __init__(self, prompt_cusps=False, k_fs_Mpc=1.06e6, filter='Sharp-k', alpha=1.8):
+    def __init__(self, prompt_cusps=False, k_fs_Mpc=1.06e6, filter='Sharp-k', alpha=1.8,
+                 sigma_model='Ludlow', class_table=None, ps_filter='Sharp-k', ps_c=None, ps_beta=4.8):
         cosmology.__init__(self)
         self.prompt_cusps  = prompt_cusps
-        self.k_fs          = k_fs_Mpc*self.Mpc**-1
+        # k_fs_Mpc=None (no cutoff) is supported by sigma_model='CLASS' only
+        self.k_fs          = None if k_fs_Mpc is None else k_fs_Mpc*self.Mpc**-1
         self.filter        = filter
         self.alpha         = alpha
+        self.sigma_model   = sigma_model
         
         if prompt_cusps:
             # Prompt-cusp path: build sigma(M) / dsigma^2/dM from the CAMB power
@@ -135,8 +138,27 @@ class halo_model(cosmology):
             self.sigma_interp, self.dsdm_interp = build_ps_interpolators(
                 self, self.k_fs, filter=filter, alpha=alpha)
 
+        if sigma_model=='CLASS':
+            # Opt-in: sigma_c(M, z) of the CDM field from a CLASS table (scale-dependent growth,
+            # free-streaming cutoff at k_fs, window ps_filter with k_s = ps_c/R_TH). Na_calc then
+            # takes the EPS walk in the field at z_acc. The Correa host history (Mzi, Mzzi, dMdz)
+            # keeps the Ludlow sigma; see sigmaMz_MAH. Imported lazily.
+            if class_table is None:
+                raise ValueError("sigma_model='CLASS' needs class_table, the path of a table written "
+                                 "by class_sigma.make_class_table")
+            from class_sigma import ClassSigma
+            self.class_sigma = ClassSigma(class_table, self, k_fs=self.k_fs, window=ps_filter,
+                                          c=ps_c, beta=ps_beta)
+        elif sigma_model!='Ludlow':
+            raise ValueError("sigma_model must be 'Ludlow' or 'CLASS', not %r"%(sigma_model,))
+        elif class_table is not None or ps_filter!='Sharp-k' or ps_c is not None or ps_beta!=4.8:
+            warnings.warn("class_table, ps_filter, ps_c and ps_beta are used only with sigma_model='CLASS'; "
+                          "they are ignored with sigma_model='Ludlow'")
+
 
     def sigmaMz(self, M, z):
+        if self.sigma_model=='CLASS':
+            return self.class_sigma.sigma(M,z)
         if self.prompt_cusps==False:
             return self.sigma_Ludlow(M)*self.growthD(z)
         else:
@@ -144,10 +166,21 @@ class halo_model(cosmology):
 
 
     def dsdm(self, M, z):
+        if self.sigma_model=='CLASS':
+            return self.class_sigma.dsdm(M,z)
         if self.prompt_cusps==False:
             return self.dsdm_Ludlow(M)*self.growthD(z)**2
         else:
             return self.dsdm_interp(np.log10(M/self.Msun))*self.growthD(z)**2
+
+
+    def sigmaMz_MAH(self, M, z):
+        """ sigma(M, z) used only by the Correa et al. (2015) host history (Mzi, Mzzi, dMdz).
+        That model is calibrated with the top-hat sigma without a cutoff, so the CLASS mode keeps
+        the Ludlow fit and growthD here; in every other mode this is sigmaMz itself. """
+        if self.sigma_model=='CLASS':
+            return self.sigma_Ludlow(M)*self.growthD(z)
+        return self.sigmaMz(M,z)
     
     
     def sigma_Ludlow(self, M):
@@ -166,7 +199,13 @@ class halo_model(cosmology):
         return dsdsigma*dsigmadxi*dxidm
         
 
-    def deltac_func(self, z):
+    def deltac_func(self, z, M=None):
+        """ Collapse barrier for S(M) = s_func(M) = sigma^2(M, 0) (the field at z = 0). In the CLASS
+        mode with M given it is mass dependent, B(M, z) = 1.686 sigma_c(M, 0)/sigma_c(M, z);
+        otherwise 1.686/D(z) (M is then ignored). Na_calc does not use it in the CLASS mode: it
+        works in the field at z_acc, where the barrier is the constant 1.686. """
+        if self.sigma_model=='CLASS' and M is not None:
+            return 1.686/self.class_sigma.growth_eff(M,z)
         return 1.686/self.growthD(z)
 
     
@@ -228,7 +267,7 @@ class halo_model(cosmology):
         a   = 1.686*np.sqrt(2./np.pi)*self.dDdz(0)+1.
         zf  = -0.0064*np.log10(M0/self.Msun)**2+0.0237*np.log10(M0/self.Msun)+1.8837
         q   = 4.137/zf**0.9476
-        fM0 = (self.sigmaMz(M0/q,0)**2-self.sigmaMz(M0,0)**2)**-0.5
+        fM0 = (self.sigmaMz_MAH(M0/q,0)**2-self.sigmaMz_MAH(M0,0)**2)**-0.5
         return M0*np.power(1.+z,a*fM0)*np.exp(-fM0*z)
 
     
@@ -236,7 +275,7 @@ class halo_model(cosmology):
         Mzi0  = self.Mzi(M0,zi)
         zf    = -0.0064*np.log10(M0/self.Msun)**2+0.0237*np.log10(M0/self.Msun)+1.8837
         q     = 4.137/zf**0.9476
-        fMzi  = (self.sigmaMz(Mzi0/q,zi)**2-self.sigmaMz(Mzi0,zi)**2)**-0.5
+        fMzi  = (self.sigmaMz_MAH(Mzi0/q,zi)**2-self.sigmaMz_MAH(Mzi0,zi)**2)**-0.5
         alpha = fMzi*(1.686*np.sqrt(2.0/np.pi)/self.growthD(zi)**2*self.dDdz(zi)+1.)
         beta  = -fMzi
         return Mzi0*np.power(1.+z-zi,alpha)*np.exp(beta*(z-zi))
@@ -246,7 +285,7 @@ class halo_model(cosmology):
         Mzi0    = self.Mzi(M0,zi)
         zf      = -0.0064*np.log10(M0/self.Msun)**2+0.0237*np.log10(M0/self.Msun)+1.8837
         q       = 4.137/zf**0.9476
-        fMzi    = (self.sigmaMz(Mzi0/q,zi)**2-self.sigmaMz(Mzi0,zi)**2)**-0.5
+        fMzi    = (self.sigmaMz_MAH(Mzi0/q,zi)**2-self.sigmaMz_MAH(Mzi0,zi)**2)**-0.5
         alpha   = fMzi*(1.686*np.sqrt(2./np.pi)/self.growthD(zi)**2*self.dDdz(zi)+1)
         beta    = -fMzi
         Mzzidef = Mzi0*(1.+z-zi)**alpha*np.exp(beta*(z-zi))
@@ -629,8 +668,11 @@ class TidalStrippingSolver(halo_model):
     
 class subhalo_properties(halo_model):
 
-    def __init__(self, prompt_cusps=False, k_fs_Mpc=1.06e6, filter='Sharp-k', alpha=1.8):
-        halo_model.__init__(self, prompt_cusps=prompt_cusps, k_fs_Mpc=k_fs_Mpc, filter=filter, alpha=alpha)
+    def __init__(self, prompt_cusps=False, k_fs_Mpc=1.06e6, filter='Sharp-k', alpha=1.8,
+                 sigma_model='Ludlow', class_table=None, ps_filter='Sharp-k', ps_c=None, ps_beta=4.8):
+        halo_model.__init__(self, prompt_cusps=prompt_cusps, k_fs_Mpc=k_fs_Mpc, filter=filter, alpha=alpha,
+                            sigma_model=sigma_model, class_table=class_table, ps_filter=ps_filter,
+                            ps_c=ps_c, ps_beta=ps_beta)
 
     
     def Ffunc(self, dela, s1, s2):
@@ -669,32 +711,50 @@ class subhalo_properties(halo_model):
             
         mmax = np.minimum(M200,Mhost/2.)
         Mmax = np.minimum(M200_0+mmax,Mhost)
+
+        if self.sigma_model=='CLASS':
+            # CLASS mode: the EPS walk is taken in the linear field at zacc, S = sigma_c^2(M, zacc),
+            # where the subhalo barrier is the constant 1.686 despite the scale-dependent growth
+            # (for Sharp-k the walk is Markovian, so Eqs. (12) and (14) hold as for a constant
+            # barrier). The host barrier at z_Max is carried to zacc with the growth at the host
+            # mass, 1.686 sigma_c(Mmax,zacc)/sigma_c(Mmax,z_Max), which is exact when the growth is
+            # scale independent on the host scale (Mmax >~ 1e8 Msun). With the Ludlow sigma times
+            # growthD this is algebraically identical to the z = 0 field used otherwise.
+            s_func = lambda M: self.sigmaMz(M,zacc_2d)**2
+            dsdm_a = self.dsdm(ma,zacc_2d)
+        else:
+            s_func = self.s_func
+            dsdm_a = self.dsdm(ma,0.)
         
         if Na_model==3:
             zlist    = zacc_2d*np.linspace(1,0,Nrand)
             iMmax    = np.argmin(np.abs(self.Mzzi(Mhost,zlist,z0)-Mmax),axis=-1)
             z_Max    = zlist[np.arange(len(zlist)),iMmax]
             z_Max_3d = z_Max.reshape(N_herm,len(zlist),1)
-            delcM    = self.deltac_func(z_Max_3d)
-            delca    = self.deltac_func(zacc_2d)
-            sM       = self.s_func(Mmax)
-            sa       = self.s_func(ma)
-            xmax     = (delca-delcM)**2/(2.*(self.s_func(mmax)-sM))
+            if self.sigma_model=='CLASS':
+                delcM    = 1.686*self.sigmaMz(Mmax,zacc_2d)/self.sigmaMz(Mmax,z_Max_3d)
+                delca    = 1.686
+            else:
+                delcM    = self.deltac_func(z_Max_3d)
+                delca    = self.deltac_func(zacc_2d)
+            sM       = s_func(Mmax)
+            sa       = s_func(ma)
+            xmax     = (delca-delcM)**2/(2.*(s_func(mmax)-sM))
             normB    = special.gamma(0.5)*special.gammainc(0.5,xmax)/np.sqrt(np.pi)
             # those reside in the exponential part of Eq. (14) 
             Phi      = self.Ffunc_Yang(delcM,delca,sM,sa)/normB*np.heaviside(mmax-ma,0)
         elif Na_model==1:
-            delca    = self.deltac_func(zacc_2d)
-            sM       = self.s_func(M200)
-            sa       = self.s_func(ma)
-            xmin     = self.s_func(mmax)-self.s_func(M200)
+            delca    = 1.686 if self.sigma_model=='CLASS' else self.deltac_func(zacc_2d)
+            sM       = s_func(M200)
+            sa       = s_func(ma)
+            xmin     = s_func(mmax)-s_func(M200)
             normB    = 1./np.sqrt(2*np.pi)*delca*2./xmin**0.5*special.hyp2f1(0.5,0.,1.5,-sM/xmin)
             Phi      = self.Ffunc(delca,sM,sa)/normB*np.heaviside(mmax-ma,0)
         elif Na_model==2:
-            delca    = self.deltac_func(zacc_2d)
-            sM       = self.s_func(M200)
-            sa       = self.s_func(ma)
-            xmin     = self.s_func(mmax)-self.s_func(M200)
+            delca    = 1.686 if self.sigma_model=='CLASS' else self.deltac_func(zacc_2d)
+            sM       = s_func(M200)
+            sa       = s_func(ma)
+            xmin     = s_func(mmax)-s_func(M200)
             normB    = 1./np.sqrt(2.*np.pi)*delca*0.57 \
                            *(delca/np.sqrt(sM))**-0.01*(2./(1.-0.38))*sM**(-0.38/2.) \
                            *xmin**(0.5*(0.38-1.)) \
@@ -707,7 +767,7 @@ class subhalo_properties(halo_model):
             F2  =F2t.reshape((len(zacc_2d),len(ma)))
         else:
             F2 = np.sum(np.nan_to_num(Phi)*wwi/np.sqrt(np.pi),axis=0)
-        Na = F2*self.dsdm(ma,0.)*self.dMdz(Mhost,zacc_2d,z0)*(1.+zacc_2d)
+        Na = F2*dsdm_a*self.dMdz(Mhost,zacc_2d,z0)*(1.+zacc_2d)
         return Na
 
     
@@ -864,7 +924,8 @@ class subhalo_observables(subhalo_properties):
     def __init__(self, M0_per_Msun, redshift=0., dz=0.01, zmax=7.0, N_ma=500, sigmalogc=0.128,
                  N_herm=5, logmamin=-6, logmamax=None, N_hermNa=200, Na_model=3, ct_th=0.0,
                  profile_change=True, M0_at_redshift=False, prompt_cusps=False, k_fs_Mpc=1.06e6,
-                 filter='Sharp-k', alpha=1.8, method="pert2_shanks", **kwargs):
+                 filter='Sharp-k', alpha=1.8, method="pert2_shanks", sigma_model='Ludlow', class_table=None,
+                 ps_filter='Sharp-k', ps_c=None, ps_beta=4.8, **kwargs):
         """
         This class computes various subhalo observables in a host halo. 
         
@@ -907,6 +968,17 @@ class subhalo_observables(subhalo_properties):
                                    - "pert2_shanks" : use perturbative method with second-order correction 
                                      and Shanks transformation.
                                    - "pert3" : use perturbative method with third-order correction.
+        (Optional) sigma_model:    'Ludlow' (default: Ludlow et al. 2016 fit times growthD) or 'CLASS':
+                                   sigma_c(M, z) of the CDM field from a CLASS table with scale-dependent
+                                   growth, the cutoff exp[-(k/k_fs)^2] (k_fs_Mpc; None: no cutoff) and the
+                                   window ps_filter. The EPS accretion rate then uses the field at z_acc
+                                   (barrier 1.686). The host history (Correa) keeps the Ludlow sigma.
+        (Optional) class_table:    Path of the CLASS table; required for sigma_model='CLASS' (build it
+                                   with class_sigma.make_class_table).
+        (Optional) ps_filter:      Window for sigma_model='CLASS': 'Sharp-k' (default), 'TopHat' or 'Smooth-k'.
+        (Optional) ps_c:           Mass assignment k_s = ps_c/R_TH (Sharp-k) or R_s = R_TH/ps_c (Smooth-k).
+                                   (default None: 2.5 for Sharp-k, 3.3 for Smooth-k)
+        (Optional) ps_beta:        Slope of the Smooth-k window. (default: 4.8)
         (Optional) kwargs:         Additional arguments for the odeint function.
 
 
@@ -936,7 +1008,9 @@ class subhalo_observables(subhalo_properties):
 
         """
 
-        subhalo_properties.__init__(self,prompt_cusps=prompt_cusps,k_fs_Mpc=k_fs_Mpc,filter=filter,alpha=alpha)
+        subhalo_properties.__init__(self,prompt_cusps=prompt_cusps,k_fs_Mpc=k_fs_Mpc,filter=filter,alpha=alpha,
+                                    sigma_model=sigma_model,class_table=class_table,ps_filter=ps_filter,
+                                    ps_c=ps_c,ps_beta=ps_beta)
         ma200, z_a, rs_a, rhos_a, m0, rs0, rhos0, ct0, weight, survive \
             = self.subhalo_properties_calc(M0_per_Msun*self.Msun,redshift,dz,zmax,N_ma,sigmalogc,N_herm,
                                            logmamin,logmamax,N_hermNa,Na_model,ct_th,profile_change,

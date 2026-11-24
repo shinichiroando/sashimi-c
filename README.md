@@ -50,6 +50,42 @@ Bsh, Bcusp_dressed, Bcusp_naked, luminosity_ratio, Ncusp_dressed, Ncusp_naked \
 
 With `prompt_cusps=True`, sigma(M) is computed from the CAMB linear matter power spectrum (with a free-streaming cutoff set by `k_fs_Mpc` / `filter` / `alpha`) instead of the Ludlow fit. The higher-order (`n>0`) boost tables are pre-computed with `boost_iteration_prompt_cusps.py`. See Ando et al. (arXiv:2601.19863).
 
+## sigma(M, z) from CLASS (opt-in)
+
+By default sigma(M, z) is the Ludlow et al. (2016) fit times the scale-independent growth factor `growthD(z)`. With `sigma_model='CLASS'` the EPS part of the model instead uses sigma(M, z) computed from a table of the linear CDM power spectrum P_cdm(k, z) made with CLASS; `class_table` (the path of the table) is then required. The module `class_sigma.py` is imported lazily, so the default path never loads it and its results are unchanged.
+
+```python
+from sashimi_c import *
+
+sh = subhalo_properties(sigma_model='CLASS', class_table='data/class_pcdm.npz')   # Sharp-k, c = 2.5
+ma200,z_acc,rs_acc,rhos_acc,m_z0,rs_z0,rhos_z0,ct_z0,weight,survive \
+    = sh.subhalo_properties_calc(1.e12*sh.Msun, logmamin=-9)
+```
+
+Physics choices:
+
+- **Field and threshold.** The CDM-only density field delta_c (CLASS `d_cdm`, synchronous gauge) with the collapse threshold 1.686. Below the baryon Jeans scale the baryons stay smooth, so delta_c grows more slowly (about a^0.9) than on large scales.
+- **Scale-dependent growth.** P_cdm(k, z) is taken from CLASS at 18 redshift nodes (z = 0 to 500), so the growth is the true, scale-dependent one, including radiation, the baryon Jeans scale and Lambda. It is not sigma(M, 0) times D(z). Between nodes, ln sigma - ln growthD is interpolated with a bicubic spline in (log10 M, ln(1+z)).
+- **High-k extension and cutoff.** Above the table's k_max (at least 1e4 Mpc^-1, beyond the Jeans transition), P is extended with the small-scale CDM shape k^(n_s-4) ln^2(B k), with ln B fitted at z = 500. The amplitude is matched at k_max for z >= 7 and at 1e4 Mpc^-1 for z < 7: CLASS's tanh reionisation makes c_b^2 < 0 at 6.8 < z < 8.2, which boosts delta_cdm at lower z, steeply with k (about 0.4% at 2e4 Mpc^-1). The free-streaming cutoff exp[-(k/k_fs)^2] uses `k_fs_Mpc` (default 1.06e6 Mpc^-1; `None` for no cutoff).
+- **Window.** `ps_filter='Sharp-k'` (default) with mass assignment k_s = c/R_TH and `ps_c` = 2.5 (Benson et al. 2013). The options are `'Smooth-k'` (beta = 4.8, c = 3.3; Leo et al. 2018) and `'TopHat'`. Do not use the top-hat window below the cutoff: it leaves spurious haloes there.
+- **EPS in the field at z_acc.** `Na_calc` (Yang et al. 2011, models 1-3) takes the random walk in the linear field at the accretion redshift, S = sigma_c^2(M, z_acc), where the collapse barrier is the constant 1.686. For Sharp-k the walk is Markovian, so Yang's Eqs. (12) and (14) hold despite the scale-dependent growth. The host barrier at z_Max is carried to z_acc with the growth at the host mass, 1.686 sigma_c(M_max, z_acc)/sigma_c(M_max, z_Max); this is exact when the growth is scale independent at the host scale (M_max >~ 1e8 Msun). With the Ludlow sigma this is algebraically the same as the default walk in the z = 0 field (the tests check it). The z = 0 field with the mass-dependent barrier B(M, z) = 1.686 sigma_c(M, 0)/sigma_c(M, z) (`deltac_func(z, M)`), solved as a moving barrier, is a different mapping of the walk between redshifts and is not exact for Sharp-k; compared with it, the z_acc-field accretion rate is up to 7% higher at m_a ~ 1e2-1e4 Msun and within 3% at m_a <= 1 Msun (M0 = 1e12 Msun, zmax = 7, central host-mass node).
+- **Host history kept on Ludlow.** The host mass-accretion history (Correa et al. 2015: `Mzi`, `Mzzi`, `dMdz`) is calibrated with the top-hat sigma without a cutoff, so it keeps the Ludlow sigma and `growthD`. `conc200` does not depend on sigma.
+
+Two parts keep their own sigma and growth and do not follow this option: the `prompt_cusps` class in `prompt_cusps.py` (cusp counts from its own Delta^2 at z = 31 times (a/a_31)^1.8) and `TidalStrippingSolver` (always the default `halo_model`). With `prompt_cusps=True` and `sigma_model='CLASS'` together, EPS uses the CLASS sigma, the host history uses the Ludlow sigma (not the CAMB sigma that `prompt_cusps=True` alone uses), and the pre-computed `n>0` prompt-cusp boost tables were made without the CLASS sigma.
+
+**Comparing weights between the two modes.** `subhalo_properties_calc` normalises the weights as weight/sum(weight)*Na_total, a grid sum against a Simpson integral (unchanged from the default code). Where dN/dln m_a rises towards `logmamin` (Ludlow), this lowers all weights by a grid-dependent factor f < 1; in the CLASS mode the low-mass end is cut off and f is close to 1. For M0 = 1e12 Msun, f = 0.962 (Ludlow) and 0.980 (CLASS) at the defaults (N_ma = 500, logmamin = -6, zmax = 7), but 0.77 and 1.00 at N_ma = 81 and logmamin = -9. Compare the two modes with `Na_calc` directly, or on fine grids.
+
+**Building the table.** The table is an `.npz` file with the keys `k_Mpc`, `z`, `pcdm`, `pcb`, `tcdm`, `sigma8`, `runtime_s`, `kmax` and `params`. It needs `classy` (the Python wrapper of CLASS):
+
+```python
+from class_sigma import make_class_table
+make_class_table('data/class_pcdm.npz')   # Planck 2018, k_max = 2e4 Mpc^-1: about 35 min on one thread
+```
+
+Set the number of threads with `OMP_NUM_THREADS` in the shell (or pass `omp_threads`, which sets it during the call; it only takes effect if OpenMP has not started in the process yet). `make_class_table` requires k_max >= 1e4 Mpc^-1, and reading a table checks its h, Omega_m and Omega_b against sashimi's cosmology (a warning if they differ by more than 0.1%).
+
+The tests (`OMP_NUM_THREADS=1 python -B tests/test_class_sigma.py`, or with `pytest`) check that the default results are bitwise unchanged, that the CLASS-mode `Na_calc` reduces to the default one for the Ludlow sigma, the error paths, and sigma(M, z) against an independent implementation. Some of them need files outside this repository, set by `SASHIMI_ORIG` (the original `sashimi_c.py`), `PS_REF_DIR` (the reference implementation) and `CLASS_TABLE`; a test whose inputs are missing is skipped.
+
 ## Versions
 
 | Version | Description |
