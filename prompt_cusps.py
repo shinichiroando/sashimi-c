@@ -16,14 +16,33 @@ non-annihilation pipeline is completely unaffected.
 
 Reference: Ando et al., arXiv:2601.19863.
 """
-import numpy as np
+from contextlib import suppress
+from functools import lru_cache
 import os
+from pathlib import Path
+from shutil import copymode
+from tempfile import TemporaryDirectory
+
+import numpy as np
 from scipy.integrate import simpson
 from scipy.interpolate import interp1d
-from scipy.optimize import root
 from scipy.special import erf
 
 from sashimi_c import cosmology
+
+
+def _file_key(filename):
+    """Identify a local table, including edits and atomic replacements."""
+    path = Path(os.fsdecode(filename)).resolve()
+    stat = path.stat()
+    return path, stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
+
+
+@lru_cache(maxsize=8)
+def _read_table(file_key, delimiter=None):
+    table = np.loadtxt(file_key[0], delimiter=delimiter, ndmin=2)
+    table.setflags(write=False)
+    return table
 
 
 def build_ps_interpolators(cosmo, k_fs, filter='Sharp-k', alpha=1.8,
@@ -38,51 +57,110 @@ def build_ps_interpolators(cosmo, k_fs, filter='Sharp-k', alpha=1.8,
     over ``log10(M/Msun)``. Lifted out of ``sashimi_c.halo_model`` so the heavy
     power-spectrum code is only loaded when ``prompt_cusps=True``.
     """
-    k, Pk = np.loadtxt(datafile, unpack=True)
-    k  = k * (cosmo.Mpc / cosmo.h) ** -1
-    Pk = Pk * (cosmo.Mpc / cosmo.h) ** 3
-    Pk = Pk * np.exp(-(k / k_fs) ** 2)
+    model = (cosmo.Mpc / cosmo.h, cosmo.Msun, 4. * np.pi * cosmo.OmegaM * cosmo.rhocrit0,
+             k_fs, filter, alpha)
+    if isinstance(datafile, (str, bytes, os.PathLike)) and os.path.isfile(datafile):
+        samples = _cached_variance(_file_key(datafile), *model)
+    else:
+        # Preserve np.loadtxt's other inputs, including streams and iterables of lines.
+        samples = _variance_samples(np.loadtxt(datafile, ndmin=2), *model)
+    log_mass, sigma, derivative = samples
+    options = dict(kind='cubic', bounds_error=False, fill_value=None)
+    return interp1d(log_mass, sigma, **options), interp1d(log_mass, derivative, **options)
 
-    def sigma_calc(M):
-        R = np.cbrt(3. * M / (4. * np.pi * cosmo.OmegaM * cosmo.rhocrit0))
-        if filter == 'TopHat':
-            R         = R[..., np.newaxis]
-            W         = 3 * (np.sin(k * R) / (k * R) - np.cos(k * R)) / (k * R) ** 2
-            integrand = k ** 3 * W ** 2 * Pk / (2. * np.pi ** 2)
-            sigma_sq  = simpson(integrand, x=np.log(k), axis=-1)
-        elif filter == 'Sharp-k':
-            kmin      = k[0]
-            kmax      = alpha / R
-            kk        = np.logspace(np.log10(kmin), np.log10(kmax), 1000)
-            fint      = interp1d(np.log(k), np.log(Pk))
-            Pkk       = np.exp(fint(np.log(kk)))
-            integrand = kk ** 3 * Pkk / (2. * np.pi ** 2)
-            sigma_sq  = simpson(integrand, x=np.log(kk), axis=0)
-        return np.sqrt(sigma_sq)
 
-    def dsdm_calc(M):
-        if filter == 'TopHat':
-            M         = M.reshape(-1, 1)
-            R         = np.cbrt(3. * M / (4. * np.pi * cosmo.OmegaM * cosmo.rhocrit0))
-            x         = k * R
-            dxdM      = x / (3. * M)
-            W         = 3 * (np.sin(x) / x - np.cos(x)) / x ** 2
-            dWdx      = (9. * np.cos(x)) / (x ** 3) - (9. * np.sin(x)) / (x ** 4) + (3. * np.sin(x)) / (x ** 2)
-            integrand = k ** 3 * Pk / (2. * np.pi ** 2) * 2. * W * dWdx * dxdM
-            return simpson(integrand, x=np.log(k), axis=-1)
-        elif filter == 'Sharp-k':
-            R     = np.cbrt(3. * M / (4. * np.pi * cosmo.OmegaM * cosmo.rhocrit0))
-            kmax  = alpha / R
-            fint  = interp1d(np.log(k), np.log(Pk))
-            Pkmax = np.exp(fint(np.log(kmax)))
-            return -kmax ** 3 * Pkmax / M / (6. * np.pi ** 2)
+@lru_cache(maxsize=16)
+def _cached_variance(file_key, length_unit, solar_mass, radius_denominator, k_fs, window, alpha):
+    return _variance_samples(_read_table(file_key), length_unit, solar_mass, radius_denominator,
+                             k_fs, window, alpha)
 
-    M_dummy = np.logspace(-12, 17, 2000) * cosmo.Msun
-    sigma_interp = interp1d(np.log10(M_dummy / cosmo.Msun), sigma_calc(M_dummy),
-                            kind='cubic', bounds_error=False, fill_value=None)
-    dsdm_interp  = interp1d(np.log10(M_dummy / cosmo.Msun), dsdm_calc(M_dummy),
-                            kind='cubic', bounds_error=False, fill_value=None)
-    return sigma_interp, dsdm_interp
+
+def _variance_samples(table, length_unit, solar_mass, radius_denominator, k_fs, window, alpha):
+    """Keep the original quadratures but limit temporary arrays to a block of masses."""
+    k, power = table.T
+    k = k * length_unit ** -1
+    power = power * length_unit ** 3 * np.exp(-(k / k_fs) ** 2)
+    log_k = np.log(k)
+
+    mass = np.logspace(-12, 17, 2000) * solar_mass
+    radius = np.cbrt(3.0 * mass / radius_denominator)
+    sigma_squared = np.empty_like(mass)
+    derivative = np.empty_like(mass)
+    normalization = 2.0 * np.pi ** 2
+
+    if window == "Sharp-k":
+        k_max = alpha / radius
+        log_power = interp1d(log_k, np.log(power))
+        for start in range(0, mass.size, 128):
+            block = slice(start, start + 128)
+            kk = np.logspace(np.log10(k[0]), np.log10(k_max[block]), 1000)
+            log_kk = np.log(kk)
+            integrand = kk ** 3 * np.exp(log_power(log_kk)) / normalization
+            sigma_squared[block] = simpson(integrand, x=log_kk, axis=0)
+        derivative = (
+            -k_max ** 3 * np.exp(log_power(np.log(k_max))) / mass / (6.0 * np.pi ** 2)
+        )
+    elif window == "TopHat":
+        k_cubed = k ** 3
+        derivative_power = k_cubed * power / normalization
+        for start in range(0, mass.size, 64):
+            block = slice(start, start + 64)
+            x = k * radius[block, None]
+            sin_x, cos_x = np.sin(x), np.cos(x)
+            x_squared = x ** 2
+            weight = 3.0 * (sin_x / x - cos_x) / x_squared
+            integrand = k_cubed * weight ** 2 * power / normalization
+            sigma_squared[block] = simpson(integrand, x=log_k, axis=-1)
+            dweight_dx = (
+                9.0 * cos_x / x**3 - 9.0 * sin_x / x**4 + 3.0 * sin_x / x_squared
+            )
+            dx_dm = x / (3.0 * mass[block, None])
+            integrand = derivative_power * 2.0 * weight * dweight_dx * dx_dm
+            derivative[block] = simpson(integrand, x=log_k, axis=-1)
+    else:
+        raise ValueError(f"Unknown prompt-cusp variance window: {window!r}.")
+
+    return np.log10(mass / solar_mass), np.sqrt(sigma_squared), derivative
+
+
+def _ellipsoidal_collapse_factor(shape):
+    """Lower root for accepted peak shapes q = e**2 - p*abs(p) in [0, 0.26)."""
+    # For f - 1 - C*f**b the lower root is bracketed by 1 and b/(b-1)
+    # up to the double root. The shape cut lies below that critical q.
+    # 48 bisections give a bracket narrower than 2e-14.
+    exponent = 0.615
+    power = 2.0 * exponent
+    coefficient = 0.47 * (5.0 * shape) ** exponent
+    lower = np.ones_like(shape)
+    upper = np.full_like(shape, power / (power - 1.0))
+    for _ in range(48):
+        middle = (lower + upper) * 0.5
+        below_root = middle - 1.0 - coefficient * middle ** power <= 0.0
+        lower = np.where(below_root, middle, lower)
+        upper = np.where(below_root, upper, middle)
+    return lower
+
+
+def _bbks_peak_density(nu, x, R_s, gamma):
+    """BBKS peak number density per unit peak height and curvature."""
+    f_x = ((x**3 - 3.0 * x) / 2.0) * (
+        erf(np.sqrt(5.0 / 2.0) * x) + erf(np.sqrt(5.0 / 8.0) * x)
+    ) + np.sqrt(2.0 / (5.0 * np.pi)) * (
+        (31.0 / 4.0 * x**2 + 8.0 / 5.0) * np.exp(-(5.0 / 8.0) * x**2)
+        + (x**2 / 2.0 - 8.0 / 5.0) * np.exp(-(5.0 / 2.0) * x**2)
+    )
+    return (np.exp(-0.5 * nu**2) / ((2.0 * np.pi)**2 * R_s**3) * f_x
+            * np.exp(-0.5 * (x - gamma * nu)**2 / (1.0 - gamma**2))
+            / np.sqrt(2.0 * np.pi * (1.0 - gamma**2)))
+
+
+@lru_cache(maxsize=16)
+def _peak_number_density(R_s, gamma):
+    """Absolute density of peaks on the original finite diagnostic grid."""
+    nu = np.linspace(1.e-10, 10., 1000)
+    x = np.linspace(1.e-10, 10., 1001)
+    density = _bbks_peak_density(nu, x[:, None], R_s, gamma)
+    return simpson(simpson(density, x=nu, axis=-1), x=x)
 
 
 class prompt_cusps(cosmology):
@@ -103,9 +181,9 @@ class prompt_cusps(cosmology):
         _a         = 1./(1.+_z)
         a          = 1./(1.+z)
         g          = 0.901
-        _k,_Delta2 = np.loadtxt('data/powerspectrum31.txt',unpack=True,delimiter=',')
-        _k        *= self.Mpc**-1
-        _Delta2   *= (a/_a)**(2.*g)
+        _k, _Delta2 = _read_table(_file_key('data/powerspectrum31.txt'), delimiter=',').T
+        _k = _k * self.Mpc**-1
+        _Delta2 = _Delta2 * (a/_a)**(2.*g)
         fint       = interp1d(np.log(_k),np.log(_Delta2),fill_value='extrapolate')
         Delta2     = np.exp(fint(np.log(k)))
         Delta2     = Delta2*np.exp(-(k/self.k_fs)**2)
@@ -117,9 +195,11 @@ class prompt_cusps(cosmology):
         #Spectral parameters
         k     = k/self.Mpc
         sigma = np.empty(3)
+        power = self.powerspectrum(k=k)
+        log_k = np.log(k)
         for j in np.arange(3):
-            y        = self.powerspectrum(k=k)*k**(2*j)
-            sigma_sq = simpson(y,x=np.log(k))
+            y        = power*k**(2*j)
+            sigma_sq = simpson(y,x=log_k)
             sigma[j] = np.sqrt(sigma_sq)
 
         #Comoving characteristic correlation length
@@ -155,33 +235,14 @@ class prompt_cusps(cosmology):
         rng = np.random.default_rng(rng_seed)
 
         # --- spectral parameters ---
-        sigma, R_s, gamma = self.sigma_function()
-
-        # --- BBKS f(x) ---
-        def f_x(x):
-            return ((x**3 - 3.0 * x) / 2.0) * (
-                erf(np.sqrt(5.0 / 2.0) * x) + erf(np.sqrt(5.0 / 8.0) * x)
-            ) + np.sqrt(2.0 / (5.0 * np.pi)) * (
-                (31.0 / 4.0 * x**2 + 8.0 / 5.0) * np.exp(-(5.0 / 8.0) * x**2)
-                + (x**2 / 2.0 - 8.0 / 5.0) * np.exp(-(5.0 / 2.0) * x**2)
-            )
-
-        # --- BBKS d^2n/(dnu dx) (matches your ddn() structure) ---
-        def d2n_dnudx(nu, x):
-            return (
-                np.exp(-0.5 * nu**2)
-                / ((2.0 * np.pi) ** 2 * R_s**3)
-                * f_x(x)
-                * np.exp(-0.5 * (x - gamma * nu) ** 2 / (1.0 - gamma**2))
-                / np.sqrt(2.0 * np.pi * (1.0 - gamma**2))
-            )
+        _, R_s, gamma = self.sigma_function()
 
         # --- sample (nu, x) on a grid via CDF inversion (stable; avoids p-sum issues) ---
         nu_grid = np.linspace(1e-12, float(nu_max), int(N_nu))
         x_grid = np.linspace(1e-12, float(x_max), int(N_x))
 
         # weights on mesh: shape (N_nu, N_x)
-        w = d2n_dnudx(nu_grid.reshape(-1, 1), x_grid)
+        w = _bbks_peak_density(nu_grid[:, None], x_grid, R_s, gamma)
         w = np.where(np.isfinite(w) & (w > 0.0), w, 0.0)
 
         wsum = float(np.sum(w))
@@ -247,29 +308,12 @@ class prompt_cusps(cosmology):
         p_random = e_random * u_random
 
         # -------------------------------------------------------------------------
-        # --- collapse factor f_ec (keep your existing definition/condition) -------
-        def fec_fun(fec, e, p):
-            return fec - 1.0 - 0.47 * (5.0 * (e**2 - p * np.abs(p)) * fec**2) ** 0.615
-
+        shape = e_random**2 - p_random * np.abs(p_random)
+        accepted = shape < 0.26
         fec_random = np.full(int(length), np.nan, dtype=float)
-
-        # Condition used in your code: e^2 - p|p| < 0.26
-        cond = (e_random**2 - p_random * np.abs(p_random)) < 0.26
-        idx_solve = np.where(cond)[0]
         if verbose:
-            print(f"cusps_Monte_Carlo: solving f_ec for {idx_solve.size}/{length} samples")
-
-        for j in idx_solve:
-            ej = float(e_random[j])
-            pj = float(p_random[j])
-            try:
-                sol = root(lambda f: fec_fun(f, ej, pj), x0=1.0)
-                if sol.success and np.isfinite(sol.x[0]) and sol.x[0] > 0.0:
-                    fec_random[j] = float(sol.x[0])
-                else:
-                    fec_random[j] = np.nan
-            except Exception:
-                fec_random[j] = np.nan
+            print(f"cusps_Monte_Carlo: solving f_ec for {accepted.sum()}/{length} samples")
+        fec_random[accepted] = _ellipsoidal_collapse_factor(shape[accepted])
 
         return x_random, nu_random, e_random, p_random, fec_random
         
@@ -305,19 +349,15 @@ class prompt_cusps(cosmology):
         x_random, nu_random, e_random, p_random, fec_random : 1D arrays
         """
 
-        cache_path = mc_cache_file
-        cache_dir = os.path.dirname(cache_path)
-        if cache_dir:
-            os.makedirs(cache_dir, exist_ok=True)
+        cache_path = Path(os.fsdecode(mc_cache_file))
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
 
-        if (not regenerate) and os.path.exists(cache_path):
+        if (not regenerate) and cache_path.exists():
             try:
-                data = np.loadtxt(cache_path)
-                if data.ndim == 1:
-                    data = data.reshape(1, -1)
+                data = _read_table(_file_key(cache_path))
                 if data.shape[1] != 5:
                     raise ValueError(f"Expected 5 columns (x,nu,e,p,f_ec) in {cache_path}, got {data.shape[1]}")
-                x_random, nu_random, e_random, p_random, fec_random = data.T
+                x_random, nu_random, e_random, p_random, fec_random = data.T.copy()
                 if verbose:
                     print(f"prompt_cusps: loaded Monte Carlo cache: {cache_path} (N={x_random.size})")
                 return x_random, nu_random, e_random, p_random, fec_random
@@ -337,7 +377,14 @@ class prompt_cusps(cosmology):
             "Generated by prompt_cusps.cusps_Monte_Carlo and cached for reproducibility." 
         )
         out = np.column_stack([x_random, nu_random, e_random, p_random, fec_random])
-        np.savetxt(cache_path, out, header=header)
+        # Publish the complete table so a concurrent reader sees one complete draw.
+        destination = cache_path.resolve()
+        with TemporaryDirectory(dir=destination.parent) as tmpdir:
+            staged = Path(tmpdir) / cache_path.name
+            np.savetxt(staged, out, header=header)
+            with suppress(FileNotFoundError):
+                copymode(destination, staged)
+            staged.replace(destination)
         if verbose:
             print(f"prompt_cusps: saved Monte Carlo cache: {cache_path} (N={out.shape[0]})")
 
@@ -352,8 +399,20 @@ class prompt_cusps(cosmology):
         regenerate_mc=False,
         rng_seed=None,
         verbose=False,
+        *,
+        return_peak_diagnostics=False,
     ):
+        """Return the collapsed fraction and the J factor of each collapsed cusp.
 
+        If no peak collapses, return a zero fraction and a scalar zero J factor.
+        With return_peak_diagnostics=True, append a dict with the universal
+        peak and surviving cusp counts per unit dark matter mass (N_peaks_M,
+        N_cusps_M), the corresponding annihilation factor per unit mass
+        (J_cusps_M), and the late-time Delos & White fit (J_cusps_fit, Eq. 2.7).
+        Counts have units of inverse mass and both J/M values have units of
+        density, in the model's internal units. f_surv scales the surviving
+        population. The host boost obtains its cusp count from subhalo weights.
+        """
         x_random, nu_random, e_random, p_random, fec_random = self._load_or_generate_prompt_cusp_mc(
             length=mc_length,
             mc_cache_file=mc_cache_file,
@@ -362,26 +421,8 @@ class prompt_cusps(cosmology):
             verbose=verbose,
         )
 
-        sigma,R_s,gamma         = self.sigma_function()
-        sigma_0,sigma_1,sigma_2 = sigma[0],sigma[1],sigma[2]
+        (sigma_0, _, sigma_2), R_s, gamma = self.sigma_function()
 
-        #num same as the one used in the sampling  
-        def f_x(x):
-            return (x**3-3.*x)/2.*(erf(np.sqrt(5./2.)*x)+erf(np.sqrt(5./8.)*x)) \
-                    +np.sqrt(2./(5.*np.pi))*((31./4.*x**2+8./5.)*np.exp(-(5./8.*x**2)) \
-                    +(x**2/2.-8./5.)*np.exp(-(5./2.*x**2)))
-
-        def ddn(nu,x):
-            return np.exp(-nu**2/2.)/((2.*np.pi)**2*R_s**3)*f_x(x) \
-                    *np.exp(-0.5*(x-gamma*nu)**2/(1.-gamma**2)) \
-                    /np.sqrt(2.*np.pi*(1.-gamma**2))
-        
-        #Differential number density of peaks
-        def n_peaks(nu=np.linspace(1.e-10,10.,num=1000),x=np.linspace(1.e-10,10.,num=1001)):
-            dndnudx_ = ddn(nu,x.reshape(-1,1))
-            n_peaks  = simpson(simpson(dndnudx_,nu,axis=-1),x)
-            return n_peaks
-        
         #Scale factor
         a  = 1./(1.+z)
 
@@ -391,26 +432,15 @@ class prompt_cusps(cosmology):
         #Critical density contrast for a spherical collapse
         delta_ec = 1.686
 
-        #Averaged peak's characteristics
-        #delta           = nu_average*sigma_0
-        #dd_delta        = x_average*sigma_2
-        #delta_random    = nu_random*sigma_0             #Used for one of the conditions
-        
         delta      = nu_random*sigma_0
         dd_delta   = -x_random*sigma_2
 
-        collapsed  = (delta*a**g>1.686*fec_random)*(e_random**2-p_random*np.abs(p_random)<0.26)
+        collapsed  = (delta*a**g > delta_ec*fec_random) & (e_random**2-p_random*np.abs(p_random) < 0.26)
         f_coll     = np.sum(collapsed)/len(collapsed)
-        N_cusps_M  = f_surv*f_coll*n_peaks()/(self.OmegaC*self.rhocrit0)
-        N_peaks_M  = n_peaks()/(self.OmegaC*self.rhocrit0)
-        #print(N_peaks_M/(1.e3*self.Msun**-1))
-        
-        collapsed_indeces = np.where(collapsed)
-        
-        delta      = delta[collapsed_indeces]
-        dd_delta   = dd_delta[collapsed_indeces]
-        fec_random = fec_random[collapsed_indeces]
-        #x_random, nu_random, e_random, p_random, fec_random = x_random[collapsed_indeces], nu_random[collapsed_indeces], e_random[collapsed_indeces], p_random[collapsed_indeces], fec_random[collapsed_indeces]
+        delta      = delta[collapsed]
+        dd_delta   = dd_delta[collapsed]
+        fec_random = fec_random[collapsed]
+
         #Cusp properties
         R       = np.sqrt(np.abs(delta/dd_delta))
         delta_a = delta*a**g
@@ -419,26 +449,21 @@ class prompt_cusps(cosmology):
         rcusp   = 0.11*a_coll*R
         f_max   = (2.*np.pi)**(-3./2.)*(self.m_chi/self.T_kd)**(3./2.)*self.OmegaC*self.rhocrit0*self.a_kd**-3
         rcore   = (3.e-5*self.G**-3*f_max**-2*Aec**-1*self.c**6)**(1./4.5)
-        Mcusp   = 8.*np.pi/3.*Aec*rcusp**1.5
-        #print(np.mean(R/self.pc), np.mean(rcore/self.pc), np.mean(rcusp/self.pc), np.mean(rcusp/rcore))
+        # The cusp mass for the comparison in Ando et al., Sec. 2.4, is
+        # Mcusp = 8.*np.pi/3.*Aec*rcusp**1.5.
+        J_cusp = 4.*np.pi*Aec**2*(0.531+np.log(rcusp/rcore)) if delta.size else 0.
 
-        #Calculate number of cusps
-
-        idx = np.where(collapsed)[0]
-        if idx.size==0:
-            J_cusp = 0.
-        else:
-            J_cusp       = 4*np.pi*Aec**2*(0.531+np.log(rcusp/rcore))
-            J_cusp_mean  = np.mean(J_cusp)
-
-        #Calculate the annihilation factor per unit dark matter mass
-        J_cusps_M = J_cusp_mean*N_cusps_M
-        J_cusps_fit = 0.08*f_surv*(np.log(self.m_chi*self.T_kd/self.GeV**2)+36.)**5*(self.OmegaC*self.rhocrit0)
-        
-        #print(np.mean(R)/self.pc,np.mean(a_coll),f_coll)
-        #print(np.mean(Aec)/(self.Msun*self.pc**-1.5),np.mean(rcore)/self.pc,np.mean(rcusp)/self.pc,np.mean(Mcusp)/self.Msun)
-        #print(f_coll, np.mean(J_cusp)/(self.Msun**2*self.pc**-3))
-        #print(np.mean(Mcusp)/self.Msun,np.mean(a_coll),np.mean(R)/self.pc)
-        #print(f_coll,N_cusps_M/(1.e3*self.Msun**-1),J_cusps_M/(self.Msun*self.pc**-3),J_cusps_fit/(self.Msun*self.pc**-3))
+        if return_peak_diagnostics:
+            rho_dm = self.OmegaC * self.rhocrit0
+            n_peaks = _peak_number_density(R_s, gamma)
+            N_cusps_M = f_surv * f_coll * n_peaks / rho_dm
+            log_mT = np.log(self.m_chi * self.T_kd / self.GeV**2)
+            diagnostics = {
+                'N_peaks_M': n_peaks / rho_dm,
+                'N_cusps_M': N_cusps_M,
+                'J_cusps_M': np.mean(J_cusp) * N_cusps_M,
+                'J_cusps_fit': 0.08 * f_surv * (log_mT + 36.)**5 * rho_dm,
+            }
+            return f_coll, J_cusp, diagnostics
 
         return f_coll, J_cusp

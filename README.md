@@ -50,6 +50,23 @@ Bsh, Bcusp_dressed, Bcusp_naked, luminosity_ratio, Ncusp_dressed, Ncusp_naked \
 
 With `prompt_cusps=True`, sigma(M) is computed from the CAMB linear matter power spectrum (with a free-streaming cutoff set by `k_fs_Mpc` / `filter` / `alpha`) instead of the Ludlow fit. The higher-order (`n>0`) boost tables are pre-computed with `boost_iteration_prompt_cusps.py`. See Ando et al. (arXiv:2601.19863).
 
+The host boost counts cusps using the weighted subhalo catalogue. Peak statistics
+also give a cosmic-mean abundance and annihilation factor per unit dark matter
+mass. You can evaluate these quantities using the same spectrum and peak sample.
+
+```python
+from prompt_cusps import prompt_cusps
+
+peaks = prompt_cusps(k_fs=sh.k_fs)
+f_coll, J_cusps, diag = peaks.cusp_properties(z=sh.redshift, return_peak_diagnostics=True)
+```
+
+`diag["N_peaks_M"]` and `diag["N_cusps_M"]` give the initial peak count and the
+surviving cusp count per unit dark matter mass. `diag["J_cusps_M"]` gives the
+corresponding annihilation factor per unit mass at the requested redshift.
+`diag["J_cusps_fit"]` gives the late-time fit, in the same density units.
+`f_surv` sets the survival fraction for this comparison. [Delos & White, Eq. (2.7) and Fig. 4](https://arxiv.org/pdf/2209.11237#page=7).
+
 ## Versions
 
 | Version | Description |
