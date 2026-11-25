@@ -60,6 +60,18 @@ With `prompt_cusps=True`, sigma(M) is computed from the CAMB linear matter power
 
 **Note (v1.2):** the default of `ct_th` (tidal-disruption threshold) changed from `0.77` to `0.0` (no disruption). This affects results for *all* users, not only prompt-cusp runs; pass `ct_th=0.77` to recover the previous behavior. v1.2 also includes a fix to `dDdz` and other minor corrections.
 
+## Tidal mass loss
+
+The catalogue and `subhalo_observables` use `method="picard_table"` to
+interpolate bound mass at the observation redshift. Pass
+`method="pert2_shanks"` to reproduce the previous default.
+Picard integrates the native stripping equation
+from accretion to observation using three nonlinear updates. A fourth update
+checks iteration convergence. Quadrature and interpolation also contribute to
+the mass error. The table covers `0 <= z <= za <= 7` and
+`-24 <= log10(ma/Mvir(za)) <= 3`. Outside these limits or when the iteration
+check fails, the solver issues a warning and directly integrates log mass.
+
 ## References
 
 When you use the outcome of this package for your scientific output, please cite the following publications.
@@ -124,7 +136,8 @@ M0: Mass of the host halo defined as M_{200} (200 times critial density) at *z =
 (Optional) profile_change: Whether we implement the evolution of subhalo density profile through tidal
                            mass loss. (default: True)
 (Optional) M0_at_redshift: If True, M0 is regarded as the mass at a given redshift, instead of z=0.
-(Optional) method:         Method to calculate the subhalo mass stripping. (default: "pert2_shanks")
+(Optional) method:         Method to calculate the subhalo mass stripping. (default: "picard_table")
+                           - "picard_table" : interpolate the nonlinear Picard mass-loss solution.
                            - "odeint" : use odeint to solve the differential equation.
                            - "pert0" : use perturbative method with zeroth-order correction.
                            - "pert1" : use perturbative method with first-order correction.
@@ -132,7 +145,7 @@ M0: Mass of the host halo defined as M_{200} (200 times critial density) at *z =
                            - "pert2_shanks" : use perturbative method with second-order correction 
                              and Shanks transformation.
                            - "pert3" : use perturbative method with third-order correction.
-(Optional) kwargs:         Additional arguments for the odeint function.
+(Optional) kwargs:         Options for the selected Picard or odeint solver.
         
 ------
 Output
